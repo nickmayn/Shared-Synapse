@@ -37,6 +37,10 @@ def _parse_markdown(p: Path, rel: str) -> dict:
         doc_type = "playbook"
     elif "/knowledge/decisions/" in rel:
         doc_type = "decision"
+    elif "/knowledge/skills/" in rel:
+        doc_type = "skill"
+    elif "/knowledge/rules/" in rel:
+        doc_type = "rule"
     elif "/context-packs/" in rel:
         doc_type = "context_pack"
     else:

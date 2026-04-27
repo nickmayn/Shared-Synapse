@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from ..db import upsert_document, upsert_chunk, upsert_tool, delete_chunks_for_document
+from ..db import upsert_document, upsert_chunk, upsert_tool, delete_chunks_for_document, delete_document
+from ..db.skills_store import upsert_skill, mark_skills_for_refresh
+from ..db.rules_store import upsert_rule
 from .parser import parse_file
 from .chunker import chunk_text
 from .embeddings import embed_texts
@@ -52,6 +54,30 @@ async def ingest_file(file_path: str) -> bool:
                 input_schema=tool_data.get("input_schema", {}),
                 output_schema=tool_data.get("output_schema", {}),
                 metadata=tool_data.get("metadata", {}),
+            )
+
+        elif doc_type == "skill":
+            await upsert_skill(
+                id=doc_id,
+                name=metadata.get("name", doc_id),
+                description=metadata.get("description", ""),
+                instructions=content,
+                triggers=metadata.get("triggers", []),
+                dependencies=metadata.get("dependencies", []),
+                metadata={k: v for k, v in metadata.items()
+                          if k not in ("name", "description", "triggers", "dependencies")},
+            )
+
+        elif doc_type == "rule":
+            await upsert_rule(
+                id=doc_id,
+                name=metadata.get("name", doc_id),
+                description=metadata.get("description", ""),
+                content=content,
+                priority=int(metadata.get("priority", 0)),
+                applies_to=metadata.get("applies_to", []),
+                metadata={k: v for k, v in metadata.items()
+                          if k not in ("name", "description", "priority", "applies_to")},
             )
 
         chunks = chunk_text(content, doc_id)
@@ -103,3 +129,20 @@ async def run_ingestion(repo_path: Optional[str] = None) -> dict:
             failed += 1
 
     return {"total": len(files), "success": success, "failed": failed}
+
+
+async def delete_knowledge(doc_id: str) -> bool:
+    """
+    Remove a document and its chunks from the database.
+    Marks any skills that depended on this document as needing refresh.
+    Returns True on success.
+    """
+    try:
+        await mark_skills_for_refresh([doc_id])
+        await delete_chunks_for_document(doc_id)
+        await delete_document(doc_id)
+        logger.info(f"Deleted knowledge document: {doc_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete document {doc_id}: {e}", exc_info=True)
+        return False

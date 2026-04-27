@@ -1,9 +1,33 @@
 """
 Shared test fixtures and mocks.
 Provides a tiktoken mock so chunker tests run without network access.
+Also mocks sentence_transformers so embedding tests run without the library installed.
 """
+import sys
+import types
 import pytest
 from unittest.mock import MagicMock, patch
+
+
+def _install_sentence_transformers_mock():
+    """Install a minimal sentence_transformers stub into sys.modules."""
+    if "sentence_transformers" in sys.modules:
+        return
+
+    import numpy as np
+
+    class _FakeModel:
+        def encode(self, texts, **kwargs):
+            if isinstance(texts, str):
+                return np.zeros(384, dtype="float32")
+            return np.zeros((len(texts), 384), dtype="float32")
+
+    mod = types.ModuleType("sentence_transformers")
+    mod.SentenceTransformer = lambda *a, **kw: _FakeModel()
+    sys.modules["sentence_transformers"] = mod
+
+
+_install_sentence_transformers_mock()
 
 
 class _FakeEncoder:
@@ -33,3 +57,4 @@ def mock_tiktoken(monkeypatch):
 
     # Patch _get_encoder so it returns the fake without triggering download
     monkeypatch.setattr(chunker_mod, "_get_encoder", lambda: fake)
+

@@ -74,6 +74,15 @@ tests/              # pytest test suite
 | `get_context_pack` | Retrieve a named context pack |
 | `list_tools` | List and rank tools relevant to a task |
 | `execute_tool` | Execute a registered tool by ID with JSON input |
+| `add_knowledge` | Add/update a knowledge document directly (re-indexed immediately, shared across all agents) |
+| `update_knowledge` | Update an existing document and re-index it; auto-marks dependent skills for refresh |
+| `delete_knowledge` | Remove a document and its chunks; marks dependent skills for refresh |
+| `reindex_knowledge` | Trigger full re-ingestion from the file system |
+| `get_skill` | Retrieve a skill by ID (name, instructions, triggers, dependencies) |
+| `list_skills` | List skills, optionally filtered by context tag |
+| `upsert_skill` | Create or update a skill; immediately shared with all connected agents |
+| `get_rule` | Retrieve a behavioral rule by ID |
+| `list_rules` | List rules by priority; optionally filtered by context |
 
 ### Example: search_knowledge
 
@@ -118,6 +127,8 @@ Drop `.md`, `.yaml`, or `.json` files into the appropriate directory:
 - `knowledge/concepts/` → type `concept`
 - `knowledge/playbooks/` → type `playbook`
 - `knowledge/decisions/` → type `decision`
+- `knowledge/skills/` → type `skill`
+- `knowledge/rules/` → type `rule`
 - `context-packs/` → type `context_pack`
 - `registry/` → type `tool`
 

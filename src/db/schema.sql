@@ -38,3 +38,32 @@ CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON chunks USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(type);
 CREATE INDEX IF NOT EXISTS idx_documents_metadata ON documents USING gin(metadata);
+
+CREATE TABLE IF NOT EXISTS skills (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  instructions TEXT NOT NULL,
+  triggers TEXT[] DEFAULT '{}',
+  dependencies TEXT[] DEFAULT '{}',
+  metadata JSONB DEFAULT '{}',
+  needs_refresh BOOLEAN DEFAULT FALSE,
+  version INTEGER DEFAULT 1,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS rules (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  content TEXT NOT NULL,
+  priority INTEGER DEFAULT 0,
+  applies_to TEXT[] DEFAULT '{}',
+  metadata JSONB DEFAULT '{}',
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_skills_needs_refresh ON skills(needs_refresh);
+CREATE INDEX IF NOT EXISTS idx_skills_metadata ON skills USING gin(metadata);
+CREATE INDEX IF NOT EXISTS idx_rules_priority ON rules(priority DESC);
+CREATE INDEX IF NOT EXISTS idx_rules_applies_to ON rules USING gin(applies_to);
