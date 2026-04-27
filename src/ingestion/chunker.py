@@ -1,6 +1,11 @@
 import re
 from typing import List, Optional
 
+# Minimum token count for a leftover trailing chunk to be kept.
+# Lower than min_tokens (300) because this is the final piece of a document
+# that has already had full-sized chunks extracted from it.
+_MIN_FINAL_CHUNK_TOKENS = 50
+
 _encoder = None
 
 
@@ -65,7 +70,7 @@ def chunk_text(
                 buffer = overlap_text
                 buffer_tokens = count_tokens(buffer)
 
-    if buffer.strip() and count_tokens(buffer.strip()) >= 50:
+    if buffer.strip() and count_tokens(buffer.strip()) >= _MIN_FINAL_CHUNK_TOKENS:
         chunks.append(_make_chunk(buffer.strip(), doc_id, chunk_index))
 
     if not chunks and text.strip():

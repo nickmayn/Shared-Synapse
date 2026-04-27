@@ -49,7 +49,7 @@ async def search_chunks(
                 params.append(filters["type"])
                 param_idx += 1
             if "tags" in filters:
-                # Each tag adds an AND clause: all listed tags must be present
+                # Each tag is checked independently; chunks matching ANY tag are returned (OR semantics)
                 for tag in filters["tags"]:
                     where_clauses.append(f"c.metadata->'tags' ? ${param_idx}")
                     params.append(tag)
