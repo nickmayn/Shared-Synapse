@@ -29,6 +29,7 @@ from ..db.rules_store import get_rule as db_get_rule, list_rules as db_list_rule
 from ..ingestion import run_ingestion, ingest_file, delete_knowledge as pipeline_delete_knowledge
 from ..ingestion.chunker import chunk_text
 from ..ingestion.embeddings import embed_text, embed_texts as embed_texts_batch
+from ..ingestion.parser import VALID_DOCUMENT_TYPES
 from ..retrieval import hybrid_search, rank_results
 from .security import (
     audit_log,
@@ -219,10 +220,8 @@ async def add_knowledge(
         raise ValueError("id must be a non-empty string")
     content = validate_query(content)
 
-    valid_types = {"system", "concept", "playbook", "decision", "skill", "rule",
-                   "context_pack", "tool", "document"}
-    if type not in valid_types:
-        raise ValueError(f"type must be one of: {', '.join(sorted(valid_types))}")
+    if type not in VALID_DOCUMENT_TYPES:
+        raise ValueError(f"type must be one of: {', '.join(sorted(VALID_DOCUMENT_TYPES))}")
 
     parsed_meta: dict = {}
     if metadata:

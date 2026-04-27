@@ -5,6 +5,14 @@ from typing import Optional
 import frontmatter
 import yaml
 
+# All valid document types recognised by the ingestion pipeline.
+# Keep this in sync with the path-based type detection in _parse_markdown.
+VALID_DOCUMENT_TYPES: frozenset = frozenset({
+    "system", "concept", "playbook", "decision",
+    "skill", "rule",
+    "context_pack", "tool", "document",
+})
+
 
 def parse_file(path: str) -> Optional[dict]:
     """
