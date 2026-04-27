@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import Any, Optional
 
 from ..db.connection import get_pool
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Allowlist of tool IDs that can be executed (empty = all allowed in dev mode)
 TOOL_ALLOWLIST: set = set()
-DEV_MODE = True  # Set to False in production
+DEV_MODE = os.getenv("DEV_MODE", "true").lower() == "true"
 
 
 def validate_query(query: str) -> str:

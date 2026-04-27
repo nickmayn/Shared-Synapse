@@ -42,7 +42,10 @@ async def ingest_file(file_path: str) -> bool:
         await upsert_document(doc_id, doc_type, content, metadata)
 
         if doc_type == "tool":
-            tool_data = json.loads(content) if content.startswith("{") else {}
+            try:
+                tool_data = json.loads(content)
+            except (json.JSONDecodeError, ValueError):
+                tool_data = {}
             await upsert_tool(
                 id=doc_id,
                 description=tool_data.get("description", ""),

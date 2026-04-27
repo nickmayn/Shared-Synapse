@@ -1,9 +1,9 @@
 import os
-from typing import List
+from typing import List, Optional
 
 from sentence_transformers import SentenceTransformer
 
-_model: SentenceTransformer = None
+_model: Optional[SentenceTransformer] = None
 
 
 def get_model() -> SentenceTransformer:

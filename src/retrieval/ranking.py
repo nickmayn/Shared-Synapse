@@ -1,5 +1,8 @@
 import json
+import logging
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def rank_results(
@@ -26,12 +29,14 @@ def rank_results(
         if isinstance(doc_meta, str):
             try:
                 doc_meta = json.loads(doc_meta)
-            except Exception:
+            except json.JSONDecodeError as e:
+                logger.debug("Failed to parse doc_meta JSON: %s", e)
                 doc_meta = {}
         if isinstance(chunk_meta, str):
             try:
                 chunk_meta = json.loads(chunk_meta)
-            except Exception:
+            except json.JSONDecodeError as e:
+                logger.debug("Failed to parse chunk_meta JSON: %s", e)
                 chunk_meta = {}
 
         doc_tags: set = set()

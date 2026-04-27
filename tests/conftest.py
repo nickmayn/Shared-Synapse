@@ -7,7 +7,14 @@ from unittest.mock import MagicMock, patch
 
 
 class _FakeEncoder:
-    """Simple whitespace tokenizer stand-in for tiktoken in tests."""
+    """
+    Whitespace-based tokenizer stand-in for tiktoken in tests.
+
+    NOTE: Token counts here differ from real tiktoken (word-count vs BPE).
+    This is intentional: tests validate chunking *logic* (splitting, IDs,
+    metadata structure) not exact token boundaries, so the approximation is
+    acceptable and avoids a network download in CI.
+    """
 
     def encode(self, text: str):
         return text.split() if text else []
