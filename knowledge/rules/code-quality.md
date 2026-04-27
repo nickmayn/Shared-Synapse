@@ -1,22 +1,25 @@
 ---
 id: rule-code-quality
 name: Code Quality Rules
-description: Non-negotiable code quality standards for all contributions
-priority: 10
+description: Baseline code quality and maintainability standards for all contributions
+priority: 50
 applies_to: [backend, frontend, all]
 tags: [quality, standards]
 ---
 
 # Rule: Code Quality Standards
 
-These rules apply to all code contributions and are enforced automatically.
+These rules define the default quality bar for all repository changes.
 
 ## Rules
 
-1. **Type hints required** — All Python functions must have complete type annotations
-2. **Docstrings required** — All public functions and classes must have docstrings
-3. **Test coverage** — New code must have ≥80% test coverage
-4. **No bare except** — Always catch specific exception types
-5. **Max function length** — Functions must not exceed 50 lines; refactor if longer
-6. **No print statements** — Use `logging` for all diagnostic output
-7. **Immutable defaults** — Never use mutable default arguments in function signatures
+1. **Keep changes minimal** — Only modify code and docs needed for the task.
+2. **Prefer readable code** — Choose straightforward implementations over clever abstractions.
+3. **Follow existing patterns** — Match naming, structure, and style already used in the repo.
+4. **Avoid duplication** — Extract shared logic when repetition becomes operationally expensive.
+5. **Use descriptive names** — Name functions, variables, and files by behavior rather than implementation detail.
+6. **Favor early returns** — Reduce nested conditionals when a simple guard clause is clearer.
+7. **Do not ship dead paths** — Remove unused branches, stale TODOs, and misleading placeholders in touched areas.
+8. **Validate behavior** — Run the narrowest useful test or check after changes.
+9. **Do not hide failures** — Catch specific exceptions and return actionable errors.
+10. **Preserve public APIs unless required** — Avoid incidental breaking changes.

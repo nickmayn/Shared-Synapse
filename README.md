@@ -1,31 +1,50 @@
+![Shared Synapse logo](logo.png)
+
 # Shared Synapse
 
-A Git-backed, database-indexed, MCP-exposed intelligence layer for developers and AI agents. Shared Synapse ingests structured knowledge (docs, playbooks, decisions, tool registries) into a PostgreSQL + pgvector store and surfaces it through a Model Context Protocol (MCP) server.
+A Git-backed, Chroma-indexed, MCP-exposed intelligence layer for developers and AI agents. Shared Synapse ingests structured knowledge into a shared memory graph, activates the right synapses for a task, and surfaces the result through a backend MCP server plus a Vue 3 frontend.
+
+## High-Level Concepts
+
+- **Brain stem baseline**: `core-brainstem` is the always-on synapse that represents team-wide rules, workflow constraints, and shared concepts.
+- **Optional neurons**: Backend and frontend work activate additional synapses that connect the relevant rules, skills, tools, decisions, and designs.
+- **Knowledge-first system**: Markdown, YAML, and JSON files under `knowledge/` and `synapses/` remain the durable source material for the intelligence layer.
+- **Ingestion pipeline**: Files are parsed into typed documents, chunked into retrieval-friendly segments, embedded with a sentence-transformer model, and stored in ChromaDB.
+- **Hybrid retrieval**: Queries use semantic vector search plus structured metadata filters, then pass through a re-ranking stage to improve relevance.
+- **MCP access layer**: The backend FastMCP server exposes search, retrieval, knowledge-management, skill, rule, and synapse operations for multiple agents.
 
 ---
 
 ## Quick Start
 
-### 1. Start PostgreSQL with pgvector
+### 1. Start ChromaDB
 
 ```bash
 docker compose up -d
 ```
 
-### 2. Install dependencies
+### 2. Install backend dependencies
 
 ```bash
+cd backend
 pip install -e ".[dev]"
 ```
 
-### 3. Configure environment
+### 3. Configure backend environment
 
 ```bash
-cp .env.example .env
+cp backend/.env.example backend/.env
 # Edit .env as needed
 ```
 
-### 4. Run ingestion
+### 4. Install frontend dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+### 5. Run ingestion
 
 ```python
 import asyncio
@@ -34,10 +53,20 @@ from src.ingestion import run_ingestion
 asyncio.run(run_ingestion())
 ```
 
-### 5. Start the MCP server
+Run this from `backend/`.
+
+### 6. Start the backend MCP server
 
 ```bash
+cd backend
 python -m src.mcp_server.server
+```
+
+### 7. Start the Vue 3 frontend
+
+```bash
+cd frontend
+npm run dev
 ```
 
 ---
@@ -45,22 +74,17 @@ python -m src.mcp_server.server
 ## Architecture
 
 ```
-knowledge/          # Markdown docs (systems, concepts, playbooks, decisions)
-context-packs/      # YAML bundles of related knowledge
-registry/           # JSON tool definitions
-src/
-  db/               # asyncpg connection pool, documents, chunks, tools tables
-  ingestion/        # Parser → Chunker → Embeddings → DB pipeline
-  retrieval/        # Hybrid vector + metadata search + re-ranking
-  mcp_server/       # FastMCP server exposing 5 tools + security/audit layer
-tests/              # pytest test suite
+backend/            # Python MCP backend and Chroma-backed ingestion/retrieval code
+frontend/           # Vue 3 control surface for synapses and shared memory
+knowledge/          # Concepts, decisions, rules, skills, tools, and designs
+synapses/           # YAML activation bundles connecting neurons and the core brain stem
 ```
 
 **Data flow:**
 1. Files are parsed (frontmatter + content extracted)
 2. Content is chunked (300–800 tokens, 15% overlap, header-aware)
 3. Chunks are embedded (`all-MiniLM-L6-v2`, 384-dim)
-4. Documents, chunks, and tool definitions stored in PostgreSQL + pgvector
+4. Documents, chunks, and tool definitions stored in ChromaDB collections
 5. MCP server receives queries, embeds them, runs HNSW vector search, re-ranks, returns results
 
 ---
@@ -71,7 +95,8 @@ tests/              # pytest test suite
 |------|-------------|
 | `search_knowledge` | Semantic search with optional filters (`type`, `tags`, `context_pack`) |
 | `get_document` | Retrieve full document by ID |
-| `get_context_pack` | Retrieve a named context pack |
+| `get_context_pack` | Retrieve a named synapse/context bundle |
+| `get_synapse` | Retrieve a named synapse using the new terminology |
 | `list_tools` | List and rank tools relevant to a task |
 | `execute_tool` | Execute a registered tool by ID with JSON input |
 | `add_knowledge` | Add/update a knowledge document directly (re-indexed immediately, shared across all agents) |
@@ -114,25 +139,43 @@ pytest
 
 ### Project layout
 
-- `src/db/` — Database layer (asyncpg pool, CRUD for documents/chunks/tools, schema)
-- `src/ingestion/` — File parser, token-aware chunker, sentence-transformer embeddings, pipeline orchestrator
-- `src/retrieval/` — Hybrid search (vector + filters), result re-ranker
-- `src/mcp_server/` — FastMCP server, input validation, audit logging
+- `backend/src/db/` — Chroma-backed CRUD layer for documents, chunks, tools, skills, and rules
+- `backend/src/ingestion/` — File parser, token-aware chunker, sentence-transformer embeddings, pipeline orchestrator
+- `backend/src/retrieval/` — Hybrid search (vector + filters), result re-ranker
+- `backend/src/mcp_server/` — FastMCP server, input validation, audit logging, and synapse access
+- `frontend/src/` — Vue 3 application for the Shared Synapse control surface
+
+### Knowledge taxonomy
+
+- `knowledge/skills/` — Reusable workflows.
+- `knowledge/rules/` — Durable engineering standards and constraints.
+- `knowledge/tools/` — Tool definitions, APIs, and MCP-adjacent integrations.
+- `knowledge/decisions/` — Architectural and design decisions.
+- `knowledge/concepts/` — High-level concepts and system overviews.
+- `knowledge/designs/` — Theme and visual-direction documents.
+- `synapses/` — Curated activation bundles that pull from multiple categories.
 
 ### Adding knowledge
 
 Drop `.md`, `.yaml`, or `.json` files into the appropriate directory:
 
-- `knowledge/systems/` → type `system`
 - `knowledge/concepts/` → type `concept`
-- `knowledge/playbooks/` → type `playbook`
 - `knowledge/decisions/` → type `decision`
+- `knowledge/designs/` → type `design`
 - `knowledge/skills/` → type `skill`
 - `knowledge/rules/` → type `rule`
-- `context-packs/` → type `context_pack`
-- `registry/` → type `tool`
+- `knowledge/tools/` → type `tool`
+- `synapses/` → type `context_pack`
 
 Then re-run ingestion to index them.
+
+## Bundled Rules and Skills
+
+The repository now ships a first-class set of bundled rules and skills under `knowledge/rules/` and `knowledge/skills/`.
+
+- Rules capture the current engineering standards for API design, backend architecture, Python, frontend runtime and styling, deployment, security, and workflow.
+- Skills capture reusable workflows such as adding an MCP or API endpoint, debugging auth, finding external skills, UI and UX review, reading VS Code search results, and agent customization.
+- The `core-brainstem`, `backend`, and `frontend` synapses activate the right knowledge bundles for a given neuron or team surface.
 
 ---
 
@@ -140,9 +183,11 @@ Then re-run ingestion to index them.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://synapse:synapse@localhost:5432/synapse` | PostgreSQL connection string |
+| `CHROMA_HOST` | `localhost` | Chroma server hostname; leave empty to use local persistent storage |
+| `CHROMA_PORT` | `8000` | Chroma server port |
+| `CHROMA_PATH` | `../.chroma` | Local persistent Chroma path when no host is configured |
 | `EMBEDDINGS_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformer model name |
-| `KNOWLEDGE_REPO_PATH` | `.` | Root path to scan for knowledge files |
+| `KNOWLEDGE_REPO_PATH` | `..` | Root path to scan for knowledge and synapse files |
 | `LOG_LEVEL` | `INFO` | Python logging level |
 
 ---

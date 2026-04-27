@@ -1,0 +1,20 @@
+name: core-brainstem
+description: Always-on team baseline that represents the Shared Synapse brain stem
+activation: core
+
+includes:
+  - shared-synapse-overview
+  - auth-system
+  - rule-code-quality
+  - rule-development-workflow
+  - rule-security
+
+common_tasks:
+  - understand platform conventions
+  - apply team baseline rules
+  - choose additional synapses
+
+tags:
+  - core
+  - baseline
+  - brainstem

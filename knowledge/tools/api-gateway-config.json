@@ -1,0 +1,33 @@
+{
+  "id": "api-gateway-config",
+  "description": "Manage API gateway routing rules, rate limiting, and middleware configuration",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["list_routes", "add_route", "remove_route", "set_rate_limit"]
+      },
+      "route": {
+        "type": "string"
+      },
+      "config": {
+        "type": "object"
+      }
+    },
+    "required": ["action"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "status": {"type": "string"},
+      "data": {"type": "object"}
+    }
+  },
+  "metadata": {
+    "tags": ["infra", "api", "gateway"],
+    "owner": "platform-team",
+    "version": "1.0",
+    "category": "tool"
+  }
+}

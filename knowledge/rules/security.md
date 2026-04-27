@@ -9,7 +9,7 @@ tags: [security, mandatory]
 
 # Rule: Security Practices
 
-High-priority rules enforced for all backend and infrastructure work.
+High-priority rules enforced for all backend, infrastructure, and externally exposed interfaces.
 
 ## Rules
 
@@ -20,3 +20,6 @@ High-priority rules enforced for all backend and infrastructure work.
 5. **Dependency scanning** — Run `pip audit` before merging dependency updates
 6. **Secrets in environment** — All secrets must come from environment variables or a secrets manager
 7. **Least privilege** — Database roles must only have permissions they need
+8. **No hardcoded credentials** — Development shortcuts must not ship in code or config
+9. **Log with context, not payloads** — Keep audit trails useful without exposing sensitive data
+10. **Use secure defaults** — Prefer deny-by-default behavior for tools, routes, and permissions

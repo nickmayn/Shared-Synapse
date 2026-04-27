@@ -1,0 +1,34 @@
+name: backend
+description: Backend neuron synapse for server, ingestion, and MCP work
+activation: optional
+extends:
+  - core-brainstem
+
+includes:
+  - core-brainstem
+  - use-chromadb
+  - rule-security
+  - rule-api-patterns
+  - rule-backend-core
+  - rule-fastapi-architecture
+  - rule-python-standards
+  - rule-deployment-operations
+  - add-api-endpoint
+  - debug-auth-flow
+
+common_tasks:
+  - add endpoint
+  - debug auth issue
+  - update ingestion pipeline
+  - add MCP tool
+  - activate backend neuron
+
+recommended_tools:
+  - api-gateway-config
+  - auth-service
+
+tags:
+  - backend
+  - api
+  - chroma
+  - mcp

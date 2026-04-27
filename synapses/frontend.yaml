@@ -1,0 +1,29 @@
+name: frontend
+description: Frontend neuron synapse for Vue 3 interfaces and visual system work
+activation: optional
+extends:
+  - core-brainstem
+
+includes:
+  - core-brainstem
+  - rule-api-patterns
+  - rule-frontend-environment
+  - rule-frontend-styling
+  - rule-vue3-architecture
+  - ui-ux-pro-max
+
+common_tasks:
+  - add component
+  - debug login flow
+  - improve interface quality
+  - configure runtime env
+  - activate frontend neuron
+
+recommended_tools:
+  - api-gateway-config
+
+tags:
+  - frontend
+  - ui
+  - ux
+  - vue

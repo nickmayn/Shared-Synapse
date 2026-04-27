@@ -1,33 +1,36 @@
 ---
 id: debug-auth-flow
 name: Debug Authentication Flow
-description: Step-by-step skill for debugging JWT authentication failures
+description: Step-by-step skill for debugging authentication, authorization, and MCP access failures
 triggers:
   - auth failure
   - token invalid
   - 401 unauthorized
 dependencies:
   - auth-system
+  - rule-security
+  - rule-backend-core
 tags: [auth, debugging, backend]
 ---
 
 # Skill: Debug Authentication Flow
 
 ## When to Use
-Use this skill when you encounter JWT authentication errors, 401 responses, or session-related failures.
+Use this skill when you encounter JWT authentication errors, authorization failures, or tool-access issues.
 
 ## Steps
 
-1. **Check token expiry**: Decode the JWT and verify `exp` claim is in the future
-2. **Verify token signature**: Use `jwt verify <token> <secret>` to confirm signature validity
-3. **Inspect Redis session**: Run `redis-cli GET session:<user_id>` to check session exists
-4. **Review auth service logs**: Look for `AuthenticationError` or `TokenExpired` entries
-5. **Check clock skew**: Ensure server and client clocks are within 5 minutes of each other
-6. **Validate scopes**: Confirm the token includes the required permission scopes
+1. **Confirm the failing boundary**: Identify whether the failure is in token validation, authorization, tool allow-listing, or downstream service access.
+2. **Check token lifetime**: Decode the JWT and verify `exp`, `nbf`, and issuer-related claims.
+3. **Verify signing inputs**: Confirm the expected secret, key, or certificate is the one used by the running environment.
+4. **Inspect session or cache state**: Check backing session storage if the auth flow depends on it.
+5. **Review audit and service logs**: Look for validation failures, denied tools, or permission mismatches.
+6. **Validate scopes and roles**: Confirm the caller has the permissions required for the endpoint or MCP tool.
+7. **Check environment drift**: Ensure clocks, environment variables, and deployed configs match across services.
 
 ## Common Causes
 
-- Token not refreshed after expiry window
-- Redis session evicted under memory pressure
-- Clock skew between microservices
-- Wrong secret used for signing
+- Token expired or not yet valid
+- Environment secret or certificate mismatch
+- Session state missing or evicted
+- Tool blocked by policy or missing permission scope
