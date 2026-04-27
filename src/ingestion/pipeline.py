@@ -29,6 +29,11 @@ def _get_all_files(repo_path: str) -> List[str]:
     return sorted(files)
 
 
+def _strip_meta(metadata: dict, exclude_keys: tuple) -> dict:
+    """Return metadata dict with specified keys removed."""
+    return {k: v for k, v in metadata.items() if k not in exclude_keys}
+
+
 async def ingest_file(file_path: str) -> bool:
     """Ingest a single file. Returns True on success."""
     try:
@@ -64,8 +69,7 @@ async def ingest_file(file_path: str) -> bool:
                 instructions=content,
                 triggers=metadata.get("triggers", []),
                 dependencies=metadata.get("dependencies", []),
-                metadata={k: v for k, v in metadata.items()
-                          if k not in ("name", "description", "triggers", "dependencies")},
+                metadata=_strip_meta(metadata, ("name", "description", "triggers", "dependencies")),
             )
 
         elif doc_type == "rule":
@@ -76,8 +80,7 @@ async def ingest_file(file_path: str) -> bool:
                 content=content,
                 priority=int(metadata.get("priority", 0)),
                 applies_to=metadata.get("applies_to", []),
-                metadata={k: v for k, v in metadata.items()
-                          if k not in ("name", "description", "priority", "applies_to")},
+                metadata=_strip_meta(metadata, ("name", "description", "priority", "applies_to")),
             )
 
         chunks = chunk_text(content, doc_id)

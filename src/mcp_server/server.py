@@ -23,6 +23,7 @@ from ..db.skills_store import (
     get_skill as db_get_skill,
     list_skills as db_list_skills,
     upsert_skill as db_upsert_skill,
+    mark_skills_for_refresh,
 )
 from ..db.rules_store import get_rule as db_get_rule, list_rules as db_list_rules
 from ..ingestion import run_ingestion, ingest_file, delete_knowledge as pipeline_delete_knowledge
@@ -295,8 +296,6 @@ async def update_knowledge(
     await audit_log("update_knowledge", resource_type=doc_type, resource_id=id,
                     details={"content_length": len(content)})
 
-    from ..db.skills_store import mark_skills_for_refresh as _mark_refresh
-
     await upsert_document(id, doc_type, content, merged_meta)
 
     chunks = chunk_text(content, id)
@@ -315,7 +314,7 @@ async def update_knowledge(
                 metadata=chunk_meta,
             )
 
-    refreshed = await _mark_refresh([id])
+    refreshed = await mark_skills_for_refresh([id])
 
     logger.info(f"update_knowledge: re-indexed '{id}', {refreshed} skills marked for refresh")
     return json.dumps({

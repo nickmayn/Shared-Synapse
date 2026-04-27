@@ -202,9 +202,7 @@ class TestMCPUpdateKnowledge:
         from src.mcp_server.server import update_knowledge
         with patch("src.mcp_server.server.audit_log", new_callable=AsyncMock):
             with patch("src.mcp_server.server.db_get_document", new_callable=AsyncMock, return_value=None):
-                # Patch the local import inside update_knowledge
-                with patch("src.db.documents.get_document", new_callable=AsyncMock, return_value=None):
-                    result = await update_knowledge("nonexistent", "some content")
+                result = await update_knowledge("nonexistent", "some content")
         data = json.loads(result)
         assert "error" in data
 
