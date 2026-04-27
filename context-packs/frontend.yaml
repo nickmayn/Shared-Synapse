@@ -1,0 +1,16 @@
+name: frontend
+description: Context pack for frontend development tasks
+
+includes:
+  - auth-system
+
+common_tasks:
+  - add component
+  - debug login flow
+
+recommended_tools:
+  - api-gateway-config
+
+tags:
+  - frontend
+  - ui
