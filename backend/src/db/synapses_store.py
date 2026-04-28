@@ -24,7 +24,7 @@ _DB_PATH_ENV = "USERS_DB_PATH"
 
 
 def _synapses_dir() -> Path:
-    default = Path(__file__).resolve().parents[4] / "synapses"
+    default = Path(__file__).resolve().parents[3] / "synapses"
     return Path(os.getenv(_SYNAPSES_DIR_ENV, str(default)))
 
 

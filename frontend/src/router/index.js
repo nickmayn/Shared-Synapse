@@ -4,7 +4,7 @@ import { useAuth } from '../composables/useAuth.js'
 const routes = [
   {
     path: '/',
-    component: () => import('../views/HomeView.vue'),
+    component: () => import('../views/ExploreView.vue'),
     meta: { requiresAuth: true },
   },
   {
@@ -18,6 +18,11 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/library',
+    component: () => import('../views/LibraryView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin' },
+  },
+  {
     path: '/synapses/new',
     component: () => import('../views/SynapseEditView.vue'),
     meta: { requiresAuth: true, requiresRole: 'admin' },
@@ -29,7 +34,7 @@ const routes = [
   },
   {
     path: '/brainstem',
-    component: () => import('../views/BrainStemView.vue'),
+    redirect: '/',
     meta: { requiresAuth: true },
   },
   {

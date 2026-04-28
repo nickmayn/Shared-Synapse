@@ -21,6 +21,12 @@ COLLECTION_METADATA: dict[str, dict] = {
 }
 
 
+def _collection_metadata(name: str) -> Optional[dict]:
+    """Return collection metadata only when Chroma has non-empty values to persist."""
+    metadata = COLLECTION_METADATA.get(name)
+    return metadata or None
+
+
 def _default_chroma_path() -> str:
     return str(Path(__file__).resolve().parents[3] / ".chroma")
 
@@ -41,14 +47,14 @@ async def get_client():
     global _client
     if _client is None:
         _client = _build_client()
-        for name, metadata in COLLECTION_METADATA.items():
-            _client.get_or_create_collection(name=name, metadata=metadata)
+        for name in COLLECTION_METADATA:
+            _client.get_or_create_collection(name=name, metadata=_collection_metadata(name))
     return _client
 
 
 async def get_collection(name: str):
     client = await get_client()
-    metadata = COLLECTION_METADATA.get(name)
+    metadata = _collection_metadata(name)
     return client.get_or_create_collection(name=name, metadata=metadata)
 
 

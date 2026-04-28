@@ -167,8 +167,8 @@ class TestBundledRulesAndSkills:
             "core-brainstem",
         }
 
-        backend_pack = yaml.safe_load((root / "synapses" / "backend.yaml").read_text())
-        frontend_pack = yaml.safe_load((root / "synapses" / "frontend.yaml").read_text())
+        backend_pack = yaml.safe_load((root / "synapse-examples" / "backend.yaml").read_text())
+        frontend_pack = yaml.safe_load((root / "synapse-examples" / "frontend.yaml").read_text())
 
         valid_ids = rule_ids | skill_ids | concept_and_decision_ids
 

@@ -93,10 +93,6 @@ onMounted(load)
         <div v-if="s.tags?.length" class="tag-list">
           <span v-for="tag in s.tags" :key="tag" class="tag">{{ tag }}</span>
         </div>
-
-        <div v-if="s.includes?.length" class="synapse-meta">
-          <strong>Includes:</strong> {{ s.includes.join(', ') }}
-        </div>
       </article>
     </div>
   </main>
@@ -174,6 +170,11 @@ onMounted(load)
   color: var(--muted);
   font-size: 0.875rem;
   margin: 0 0 1rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  min-height: calc(1.55em * 3);
 }
 
 .tag-list {
@@ -189,12 +190,6 @@ onMounted(load)
   color: #374151;
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
-}
-
-.synapse-meta {
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin-top: 0.5rem;
 }
 
 .btn-sm {

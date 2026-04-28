@@ -17,7 +17,6 @@ common_tasks:
   - debug login flow
   - improve interface quality
   - configure runtime env
-  - activate frontend neuron
 
 recommended_tools:
   - api-gateway-config

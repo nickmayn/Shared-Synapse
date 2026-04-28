@@ -6,14 +6,9 @@ const synapses = [
     description: 'The baseline team memory: durable rules, workflow constraints, and shared platform concepts.',
   },
   {
-    name: 'Backend Neuron',
+    name: 'Custom Synapses',
     status: 'Optional activation',
-    description: 'Server, ingestion, MCP, and Chroma-backed retrieval behavior for Python work.',
-  },
-  {
-    name: 'Frontend Neuron',
-    status: 'Optional activation',
-    description: 'Vue 3 interface work, design system direction, and runtime environment patterns.',
+    description: 'Create only the synapses you actually need, using skills, rules, and tools as the basic blocks.',
   },
 ]
 
@@ -32,10 +27,10 @@ const categories = [
     <section class="hero">
       <div class="hero-copy">
         <p class="eyebrow">Shared Synapse Console</p>
-        <h1>Brain stem rules. Optional synapses. One shared memory layer.</h1>
+        <h1>Brain stem first. Add synapses only when they earn their keep.</h1>
         <p class="lede">
-          The frontend is a control surface for the knowledge graph: activate neuron-specific synapses,
-          inspect the core brain stem, and understand how concepts, tools, and designs connect.
+          The frontend is a control surface for the shared brain: inspect the core brain stem,
+          create only the synapses you need, and compose them from skills, rules, and tools.
         </p>
         <div class="hero-actions">
           <router-link to="/synapses" class="primary-link">Manage Synapses</router-link>
@@ -55,7 +50,7 @@ const categories = [
     <section id="synapses" class="section">
       <div class="section-heading">
         <p class="eyebrow">Activation Model</p>
-        <h2>Synapses connect the right neurons for the job.</h2>
+        <h2>The brain stem is the default. Everything else is optional.</h2>
       </div>
       <div class="card-grid">
         <article v-for="synapse in synapses" :key="synapse.name" class="card">

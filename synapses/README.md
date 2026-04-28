@@ -5,7 +5,8 @@ Synapses are activation bundles that connect groups of knowledge objects for a s
 ## Mental Model
 
 - `core-brainstem` is the always-on baseline for team-wide rules and concepts.
-- Additional synapses such as `backend` and `frontend` layer on top when that neuron is active.
+- Additional synapses are optional and user-created by default.
+- Example synapses such as `backend` and `frontend` live under `synapse-examples/` and can be copied into `synapses/` when needed.
 - A synapse can include rules, skills, tools, concepts, decisions, and even other synapses.
 
 ## Suggested Fields

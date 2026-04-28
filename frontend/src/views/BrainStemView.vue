@@ -1,12 +1,28 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getSynapse } from '../api.js'
+import {
+  getSynapse,
+  importGithubCandidate,
+  listGithubCandidates,
+  searchGithubRepos,
+} from '../api.js'
 import { useAuth } from '../composables/useAuth.js'
 
 const { isAdmin } = useAuth()
 const brainstem = ref(null)
 const loading = ref(true)
 const error = ref('')
+const repoQuery = ref('')
+const repoResults = ref([])
+const repoLoading = ref(false)
+const repoError = ref('')
+const selectedRepo = ref('')
+const candidateKind = ref('all')
+const candidateQuery = ref('')
+const candidates = ref([])
+const candidatesLoading = ref(false)
+const candidatesError = ref('')
+const importState = ref({ path: '', notice: '', error: '' })
 
 async function load() {
   loading.value = true
@@ -17,6 +33,73 @@ async function load() {
     error.value = e.response?.data?.detail || 'Failed to load brain stem.'
   } finally {
     loading.value = false
+  }
+}
+
+async function searchRepos() {
+  repoLoading.value = true
+  repoError.value = ''
+  repoResults.value = []
+  selectedRepo.value = ''
+  candidates.value = []
+  try {
+    const data = await searchGithubRepos(repoQuery.value)
+    repoResults.value = data.repos || []
+    if (!repoResults.value.length) {
+      repoError.value = 'No public repositories matched that search.'
+    }
+  } catch (e) {
+    repoError.value = e.response?.data?.detail || 'Repository search failed.'
+  } finally {
+    repoLoading.value = false
+  }
+}
+
+async function loadCandidates() {
+  if (!selectedRepo.value) return
+  candidatesLoading.value = true
+  candidatesError.value = ''
+  candidates.value = []
+  try {
+    const data = await listGithubCandidates(selectedRepo.value, candidateKind.value, candidateQuery.value)
+    candidates.value = data.candidates || []
+    if (!candidates.value.length) {
+      candidatesError.value = 'No matching rules, skills, or tools were found in that repository.'
+    }
+  } catch (e) {
+    candidatesError.value = e.response?.data?.detail || 'Failed to inspect that repository.'
+  } finally {
+    candidatesLoading.value = false
+  }
+}
+
+async function selectRepo(repo) {
+  selectedRepo.value = repo.full_name
+  importState.value = { path: '', notice: '', error: '' }
+  await loadCandidates()
+}
+
+async function importCandidate(candidate) {
+  importState.value = { path: candidate.path, notice: '', error: '' }
+  try {
+    const data = await importGithubCandidate({
+      repo: selectedRepo.value,
+      path: candidate.path,
+      synapse_name: 'core-brainstem',
+    })
+    importState.value = {
+      path: '',
+      notice: `Added ${data.document.id} to core-brainstem.`,
+      error: '',
+    }
+    await load()
+    await loadCandidates()
+  } catch (e) {
+    importState.value = {
+      path: '',
+      notice: '',
+      error: e.response?.data?.detail || 'Import failed.',
+    }
   }
 }
 
@@ -69,6 +152,101 @@ onMounted(load)
         <span class="synapse-badge badge-active">Always Active</span>
       </div>
     </template>
+
+    <section v-if="isAdmin" class="import-panel">
+      <div class="import-panel__header">
+        <div>
+          <p class="eyebrow">Expand the Shared Brain</p>
+          <h2>Import from public GitHub repos</h2>
+          <p class="lede import-panel__lede">
+            Search open-source repositories, inspect likely skills, rules, and tool definitions, and attach them directly to
+            the always-on brain stem.
+          </p>
+        </div>
+      </div>
+
+      <form class="repo-search" @submit.prevent="searchRepos">
+        <label class="repo-search__field">
+          <span>Repository search</span>
+          <input
+            v-model="repoQuery"
+            type="text"
+            placeholder="e.g. fastapi auth rules, prompt engineering skills, dev tools"
+          />
+        </label>
+        <button class="btn-primary" type="submit" :disabled="repoLoading || !repoQuery.trim()">
+          {{ repoLoading ? 'Searching…' : 'Search GitHub' }}
+        </button>
+      </form>
+
+      <p v-if="repoError" class="form-error">{{ repoError }}</p>
+
+      <div v-if="repoResults.length" class="repo-results">
+        <button
+          v-for="repo in repoResults"
+          :key="repo.full_name"
+          type="button"
+          class="repo-result"
+          :class="{ 'repo-result--selected': selectedRepo === repo.full_name }"
+          @click="selectRepo(repo)"
+        >
+          <strong>{{ repo.full_name }}</strong>
+          <span>{{ repo.description || 'No description provided.' }}</span>
+          <small>{{ repo.language || 'Mixed' }} · {{ repo.stargazers_count }} stars</small>
+        </button>
+      </div>
+
+      <div v-if="selectedRepo" class="candidate-panel">
+        <div class="candidate-toolbar">
+          <label>
+            <span>Type</span>
+            <select v-model="candidateKind" @change="loadCandidates">
+              <option value="all">All</option>
+              <option value="skill">Skills</option>
+              <option value="rule">Rules</option>
+              <option value="tool">Tools</option>
+            </select>
+          </label>
+
+          <label class="candidate-toolbar__search">
+            <span>Filter paths</span>
+            <input
+              v-model="candidateQuery"
+              type="text"
+              placeholder="auth, security, tool, workflow"
+              @keyup.enter.prevent="loadCandidates"
+            />
+          </label>
+
+          <button type="button" class="btn-secondary" @click="loadCandidates" :disabled="candidatesLoading">
+            {{ candidatesLoading ? 'Scanning…' : 'Scan repo' }}
+          </button>
+        </div>
+
+        <p v-if="importState.notice" class="form-success">{{ importState.notice }}</p>
+        <p v-if="importState.error" class="form-error">{{ importState.error }}</p>
+        <p v-if="candidatesError" class="form-error">{{ candidatesError }}</p>
+
+        <div v-if="candidates.length" class="candidate-list">
+          <article v-for="candidate in candidates" :key="candidate.path" class="candidate-card">
+            <div class="candidate-card__meta">
+              <span class="synapse-badge" :class="`badge-${candidate.type}`">{{ candidate.type }}</span>
+              <a :href="candidate.html_url" target="_blank" rel="noreferrer">Open source</a>
+            </div>
+            <h3>{{ candidate.name }}</h3>
+            <p>{{ candidate.path }}</p>
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="importState.path === candidate.path"
+              @click="importCandidate(candidate)"
+            >
+              {{ importState.path === candidate.path ? 'Adding…' : 'Add to brain stem' }}
+            </button>
+          </article>
+        </div>
+      </div>
+    </section>
   </main>
 </template>
 
@@ -133,6 +311,148 @@ onMounted(load)
 
 .bs-status { display: flex; gap: 0.5rem; }
 
+.import-panel {
+  margin-top: 2.5rem;
+  padding: 1.5rem;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.78)),
+    radial-gradient(circle at top right, rgba(20, 33, 61, 0.08), transparent 28%);
+  box-shadow: var(--shadow);
+}
+
+.import-panel__header h2 {
+  margin: 0;
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.import-panel__lede {
+  margin-top: 0.8rem;
+  margin-bottom: 0;
+}
+
+.repo-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  align-items: end;
+}
+
+.repo-search__field,
+.candidate-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.repo-search input,
+.candidate-toolbar input,
+.candidate-toolbar select {
+  min-height: 48px;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+  font: inherit;
+}
+
+.repo-results,
+.candidate-list {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1.25rem;
+}
+
+.repo-results {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.repo-result,
+.candidate-card {
+  text-align: left;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 1rem;
+}
+
+.repo-result {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.repo-result:hover,
+.repo-result--selected {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 16px 34px rgba(20, 33, 61, 0.1);
+}
+
+.repo-result strong,
+.candidate-card h3 {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.repo-result span,
+.candidate-card p {
+  color: var(--muted);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.repo-result span {
+  -webkit-line-clamp: 3;
+  min-height: calc(1.55em * 3);
+}
+
+.candidate-card p {
+  -webkit-line-clamp: 2;
+  min-height: calc(1.55em * 2);
+}
+
+.candidate-panel {
+  margin-top: 1.5rem;
+}
+
+.candidate-toolbar {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: end;
+}
+
+.candidate-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.candidate-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.candidate-card__meta a {
+  color: var(--accent-strong);
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+
+.badge-skill { background: #e0f2fe; color: #075985; }
+.badge-rule { background: #fef3c7; color: #92400e; }
+.badge-tool { background: #dcfce7; color: #166534; }
+
 .synapse-badge {
   display: inline-block;
   font-size: 0.72rem;
@@ -162,6 +482,28 @@ onMounted(load)
 
 .btn-primary:hover { background: var(--accent-strong); }
 
+.btn-secondary {
+  min-height: 48px;
+  padding: 0.65rem 1rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.btn-secondary:hover { border-color: var(--accent); }
+
 .loading { color: var(--muted); }
 .form-error { color: #dc2626; }
+.form-success { color: #166534; }
+
+@media (max-width: 860px) {
+  .repo-search,
+  .candidate-toolbar {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

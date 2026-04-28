@@ -48,6 +48,19 @@ export const logout = (refresh_token) =>
 // Synapses
 export const listSynapses = () => http.get('/api/synapses').then((r) => r.data)
 export const getSynapse = (name) => http.get(`/api/synapses/${name}`).then((r) => r.data)
+export const getSynapseResources = (name) =>
+  http.get(`/api/synapses/${name}/resources`).then((r) => r.data)
+export const listResources = () => http.get('/api/resources').then((r) => r.data)
+export const searchLibraryResources = ({ type = 'skill', query = '', page = 1, pageSize = 8 } = {}) =>
+  http.get('/api/resources/search', {
+    params: { type, query, page, page_size: pageSize },
+  }).then((r) => r.data)
+export const getResourceDetail = (type, id) =>
+  http.get(`/api/resources/${type}/${id}`).then((r) => r.data)
+export const updateResource = (type, id, body) =>
+  http.put(`/api/resources/${type}/${id}`, body).then((r) => r.data)
+export const deleteResource = (type, id) =>
+  http.delete(`/api/resources/${type}/${id}`).then((r) => r.data)
 export const upsertSynapse = (name, body) =>
   http.put(`/api/synapses/${name}`, body).then((r) => r.data)
 export const deleteSynapse = (name) =>
@@ -56,6 +69,16 @@ export const activateSynapse = (name) =>
   http.post(`/api/synapses/${name}/activate`).then((r) => r.data)
 export const deactivateSynapse = (name) =>
   http.post(`/api/synapses/${name}/deactivate`).then((r) => r.data)
+
+// GitHub import
+export const searchGithubRepos = (query) =>
+  http.get('/api/import/github/repos', { params: { query } }).then((r) => r.data)
+export const listGithubCandidates = (repo, kind, query) =>
+  http.get('/api/import/github/candidates', { params: { repo, kind, query } }).then((r) => r.data)
+export const importGithubCandidate = (body) =>
+  http.post('/api/import/github/import', body).then((r) => r.data)
+export const importLocalProjectResources = (body = { types: ['skill', 'rule', 'tool'] }) =>
+  http.post('/api/import/local/project', body).then((r) => r.data)
 
 // Users (admin)
 export const listUsers = () => http.get('/admin/users').then((r) => r.data)

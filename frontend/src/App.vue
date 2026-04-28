@@ -16,8 +16,9 @@ async function handleLogout() {
     <nav v-if="isAuthenticated" class="top-nav">
       <router-link to="/" class="nav-brand">⚡ Shared Synapse</router-link>
       <div class="nav-links">
+        <router-link to="/">Explore</router-link>
+        <router-link v-if="isAdmin" to="/library">Library</router-link>
         <router-link to="/synapses">Synapses</router-link>
-        <router-link to="/brainstem">Brain Stem</router-link>
         <router-link v-if="isAdmin" to="/admin/users">Users</router-link>
       </div>
       <div class="nav-user">

@@ -1,5 +1,5 @@
 from .connection import get_client, get_pool, close_client, close_pool
-from .documents import upsert_document, get_document, delete_document
+from .documents import upsert_document, get_document, delete_document, list_documents_by_type
 from .chunks import upsert_chunk, search_chunks, delete_chunks_for_document
 from .tools_store import upsert_tool, get_tool, list_tools
 from .skills_store import (
@@ -26,7 +26,7 @@ from .conversations_store import (
 
 __all__ = [
     "get_client", "get_pool", "close_client", "close_pool",
-    "upsert_document", "get_document", "delete_document",
+    "upsert_document", "get_document", "delete_document", "list_documents_by_type",
     "upsert_chunk", "search_chunks", "delete_chunks_for_document",
     "upsert_tool", "get_tool", "list_tools",
     "upsert_skill", "get_skill", "list_skills",

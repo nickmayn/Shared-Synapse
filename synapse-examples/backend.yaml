@@ -21,7 +21,6 @@ common_tasks:
   - debug auth issue
   - update ingestion pipeline
   - add MCP tool
-  - activate backend neuron
 
 recommended_tools:
   - api-gateway-config

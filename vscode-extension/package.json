@@ -9,6 +9,7 @@
   },
   "categories": ["Other", "AI"],
   "keywords": ["knowledge", "mcp", "second brain", "ai", "synapse"],
+  "icon": "media/brain-icon.png",
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "contributes": {
