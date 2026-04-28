@@ -1,0 +1,54 @@
+name: Publish VS Code Extension
+
+on:
+  push:
+    tags:
+      - 'vscode-v*'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to marketplace (true) or just build VSIX (false)'
+        required: false
+        default: 'false'
+
+jobs:
+  build-and-publish:
+    name: Build & Publish VSIX
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Package VSIX
+        run: npm run package
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-synapse-vsix
+          path: vscode-extension/*.vsix
+          retention-days: 30
+
+      - name: Publish to VS Code Marketplace
+        if: >
+          startsWith(github.ref, 'refs/tags/vscode-v') ||
+          github.event.inputs.publish == 'true'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npm run publish

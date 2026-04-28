@@ -1,0 +1,95 @@
+{
+  "name": "shared-synapse",
+  "displayName": "Shared Synapse",
+  "description": "Connect VS Code to your Shared Synapse second brain – search knowledge, activate neurons, and push context.",
+  "version": "0.1.0",
+  "publisher": "shared-synapse",
+  "engines": {
+    "vscode": "^1.87.0"
+  },
+  "categories": ["Other", "AI"],
+  "keywords": ["knowledge", "mcp", "second brain", "ai", "synapse"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sharedSynapse.searchKnowledge",
+        "title": "Shared Synapse: Search Knowledge"
+      },
+      {
+        "command": "sharedSynapse.activateSynapse",
+        "title": "Shared Synapse: Activate Synapse"
+      },
+      {
+        "command": "sharedSynapse.pushSelection",
+        "title": "Shared Synapse: Push Selection to Knowledge"
+      },
+      {
+        "command": "sharedSynapse.openDashboard",
+        "title": "Shared Synapse: Open Dashboard"
+      },
+      {
+        "command": "sharedSynapse.connect",
+        "title": "Shared Synapse: Connect to Server"
+      },
+      {
+        "command": "sharedSynapse.startLocalAgent",
+        "title": "Shared Synapse: Start Local MCP Agent"
+      }
+    ],
+    "configuration": {
+      "title": "Shared Synapse",
+      "properties": {
+        "sharedSynapse.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL of the Shared Synapse API (e.g. http://localhost:8000)"
+        },
+        "sharedSynapse.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect to the server on startup"
+        },
+        "sharedSynapse.localBackendPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the local Shared Synapse backend directory (for the MCP stdio bridge)"
+        },
+        "sharedSynapse.syncWorkspaceExtensions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Push installed extension list as a tools knowledge entry on startup"
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "sharedSynapse.pushSelection",
+          "when": "editorHasSelection",
+          "group": "sharedSynapse"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.87.0",
+    "@vscode/vsce": "^2.24.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nickmayn/Shared-Synapse"
+  },
+  "license": "MIT"
+}
