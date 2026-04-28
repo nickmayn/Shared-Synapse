@@ -36,8 +36,8 @@ from ..db.nominations_store import (
 )
 from ..db.conversations_store import (
     add_conversation_entry as db_add_conversation_entry,
-    get_conversation as db_get_conversation,
-    list_conversation_sessions as db_list_conversation_sessions,
+    get_conversation_tree as db_get_conversation_tree,
+    list_conversations as db_list_conversations,
 )
 from ..ingestion import run_ingestion, ingest_file, delete_knowledge as pipeline_delete_knowledge
 from ..ingestion.chunker import chunk_text
@@ -684,15 +684,20 @@ async def add_conversation_entry(
     user_id: str,
     role: str,
     content: str,
+    conversation_id: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> str:
     """
-    Append an entry to a user's conversation history (chronological layer).
-    user_id: identifier for the user or agent session
+    Append an entry to a user's nested conversation history (memory palace layer).
+    user_id: identifier for the user or agent
     role: 'user' or 'agent'
     content: the message or response text
-    session_id: optional session grouping key; a new UUID is assigned if omitted
-    Returns the created entry ID and session ID.
+    conversation_id: named topic context (a room in the memory palace);
+                     a new UUID is assigned if omitted
+    session_id: temporal grouping within a conversation (a visit to that room);
+                a new UUID is assigned if omitted
+    Returns the created entry ID together with conversation_id and session_id so
+    callers can keep the context alive across subsequent turns.
     """
     if not user_id or not isinstance(user_id, str):
         raise ValueError("user_id must be a non-empty string")
@@ -701,26 +706,36 @@ async def add_conversation_entry(
     content = validate_query(content)
 
     await audit_log("add_conversation_entry", resource_type="conversation", resource_id=user_id,
-                    details={"role": role, "session_id": session_id})
+                    details={"role": role, "conversation_id": conversation_id,
+                             "session_id": session_id})
 
     entry_id = await db_add_conversation_entry(
-        user_id=user_id, role=role, content=content, session_id=session_id
+        user_id=user_id, role=role, content=content,
+        conversation_id=conversation_id, session_id=session_id,
     )
-    return json.dumps({"status": "added", "entry_id": entry_id, "user_id": user_id, "role": role})
+    return json.dumps({
+        "status": "added",
+        "entry_id": entry_id,
+        "user_id": user_id,
+        "role": role,
+        "conversation_id": conversation_id,
+        "session_id": session_id,
+    })
 
 
 @mcp.tool()
 async def get_conversation(
     user_id: str,
-    session_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
     limit: Optional[int] = None,
 ) -> str:
     """
-    Retrieve the chronological conversation history for a user.
+    Retrieve the nested conversation tree for a user (memory palace structure).
+    Returns conversations → sessions → entries, oldest-first within each session.
     user_id: user identifier
-    session_id: optional session filter; omit to retrieve across all sessions
-    limit: maximum number of entries to return (default 100, max 500)
-    Returns entries ordered oldest-first.
+    conversation_id: optional filter to a single named conversation room;
+                     omit to retrieve the full tree for this user
+    limit: maximum entries per session (default 100, max 500)
     """
     if not user_id or not isinstance(user_id, str):
         raise ValueError("user_id must be a non-empty string")
@@ -728,26 +743,34 @@ async def get_conversation(
     resolved_limit = min(int(limit), 500) if limit is not None else 100
 
     await audit_log("get_conversation", resource_type="conversation", resource_id=user_id,
-                    details={"session_id": session_id, "limit": resolved_limit})
+                    details={"conversation_id": conversation_id, "limit": resolved_limit})
 
-    entries = await db_get_conversation(user_id=user_id, session_id=session_id,
-                                        limit=resolved_limit)
-    return json.dumps({"entries": entries, "total": len(entries)}, default=str)
+    tree = await db_get_conversation_tree(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        limit=resolved_limit,
+    )
+    return json.dumps({
+        "user_id": user_id,
+        "conversations": tree,
+        "conversation_count": len(tree),
+    }, default=str)
 
 
 @mcp.tool()
 async def list_conversations(user_id: str) -> str:
     """
-    List all conversation sessions for a user.
-    Returns session summaries with entry count and latest timestamp, newest first.
+    List all conversation rooms for a user (memory palace room index).
+    Returns conversation summaries with session count, total entry count,
+    and latest timestamp, ordered newest first.
     """
     if not user_id or not isinstance(user_id, str):
         raise ValueError("user_id must be a non-empty string")
 
     await audit_log("list_conversations", resource_type="conversation", resource_id=user_id)
 
-    sessions = await db_list_conversation_sessions(user_id=user_id)
-    return json.dumps({"sessions": sessions, "total": len(sessions)}, default=str)
+    conversations = await db_list_conversations(user_id=user_id)
+    return json.dumps({"conversations": conversations, "total": len(conversations)}, default=str)
 
 
 def main():

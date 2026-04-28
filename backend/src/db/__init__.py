@@ -20,8 +20,8 @@ from .nominations_store import (
 )
 from .conversations_store import (
     add_conversation_entry,
-    get_conversation,
-    list_conversation_sessions,
+    get_conversation_tree,
+    list_conversations,
 )
 
 __all__ = [
@@ -34,5 +34,5 @@ __all__ = [
     "upsert_rule", "get_rule", "list_rules",
     "nominate_knowledge", "get_nomination", "list_nominations",
     "vote_nomination", "update_nomination_status",
-    "add_conversation_entry", "get_conversation", "list_conversation_sessions",
+    "add_conversation_entry", "get_conversation_tree", "list_conversations",
 ]

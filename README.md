@@ -113,9 +113,9 @@ synapses/           # YAML activation bundles connecting neurons and the core br
 | `vote_nomination` | Cast an up/down vote on a pending nomination; each user may vote once |
 | `approve_nomination` | Approve a nomination and immediately ingest it into the shared neuron store |
 | `reject_nomination` | Reject a nomination without ingesting it |
-| `add_conversation_entry` | Append an entry to a user's per-user chronological conversation history |
-| `get_conversation` | Retrieve a user's conversation history (optionally scoped to a session), oldest-first |
-| `list_conversations` | List all conversation sessions for a user, newest first |
+| `add_conversation_entry` | Append an entry to a user's per-user nested conversation history (memory palace layer: conversation → session → entry) |
+| `get_conversation` | Retrieve a user's full conversation tree nested as conversations → sessions → entries, oldest-first |
+| `list_conversations` | List all named conversation rooms for a user with session and entry counts, newest first |
 
 ### Example: search_knowledge
 

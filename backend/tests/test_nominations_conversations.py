@@ -28,12 +28,12 @@ class TestConversationsStore:
     def test_conversations_store_importable(self):
         from src.db.conversations_store import (
             add_conversation_entry,
-            get_conversation,
-            list_conversation_sessions,
+            get_conversation_tree,
+            list_conversations,
         )
         assert callable(add_conversation_entry)
-        assert callable(get_conversation)
-        assert callable(list_conversation_sessions)
+        assert callable(get_conversation_tree)
+        assert callable(list_conversations)
 
 
 class TestNominateMCPTool:
@@ -239,17 +239,33 @@ class TestAddConversationEntryMCPTool:
             await add_conversation_entry("alice", "bot", "Hello")
 
     @pytest.mark.asyncio
-    async def test_add_success(self):
+    async def test_add_success_with_context(self):
         from src.mcp_server.server import add_conversation_entry
         with patch("src.mcp_server.server.audit_log", new_callable=AsyncMock):
             with patch("src.mcp_server.server.db_add_conversation_entry",
                        new_callable=AsyncMock, return_value="entry-abc"):
-                result = await add_conversation_entry("alice", "user", "Hello there",
-                                                      session_id="sess-1")
+                result = await add_conversation_entry(
+                    "alice", "user", "Hello there",
+                    conversation_id="project-alpha", session_id="sess-1",
+                )
         data = json.loads(result)
         assert data["status"] == "added"
         assert data["entry_id"] == "entry-abc"
         assert data["user_id"] == "alice"
+        assert data["conversation_id"] == "project-alpha"
+        assert data["session_id"] == "sess-1"
+
+    @pytest.mark.asyncio
+    async def test_add_success_without_context(self):
+        """conversation_id and session_id default to None and are auto-assigned by the store."""
+        from src.mcp_server.server import add_conversation_entry
+        with patch("src.mcp_server.server.audit_log", new_callable=AsyncMock):
+            with patch("src.mcp_server.server.db_add_conversation_entry",
+                       new_callable=AsyncMock, return_value="entry-xyz"):
+                result = await add_conversation_entry("alice", "agent", "I can help!")
+        data = json.loads(result)
+        assert data["status"] == "added"
+        assert data["entry_id"] == "entry-xyz"
 
 
 class TestGetConversationMCPTool:
@@ -260,28 +276,45 @@ class TestGetConversationMCPTool:
             await get_conversation("")
 
     @pytest.mark.asyncio
-    async def test_get_returns_entries(self):
+    async def test_get_returns_nested_tree(self):
         from src.mcp_server.server import get_conversation
-        mock_entries = [
-            {"id": "e1", "user_id": "alice", "role": "user", "content": "Hello",
-             "session_id": "sess-1", "created_at": "2026-01-01T00:00:00"},
-            {"id": "e2", "user_id": "alice", "role": "agent", "content": "Hi there",
-             "session_id": "sess-1", "created_at": "2026-01-01T00:00:01"},
-        ]
+        mock_tree = {
+            "project-alpha": {
+                "conversation_id": "project-alpha",
+                "user_id": "alice",
+                "sessions": {
+                    "sess-1": {
+                        "session_id": "sess-1",
+                        "entry_count": 2,
+                        "started_at": "2026-01-01T00:00:00",
+                        "latest_at": "2026-01-01T00:00:01",
+                        "entries": [
+                            {"id": "e1", "user_id": "alice", "role": "user",
+                             "content": "Hello", "created_at": "2026-01-01T00:00:00"},
+                            {"id": "e2", "user_id": "alice", "role": "agent",
+                             "content": "Hi there", "created_at": "2026-01-01T00:00:01"},
+                        ],
+                    }
+                },
+            }
+        }
         with patch("src.mcp_server.server.audit_log", new_callable=AsyncMock):
-            with patch("src.mcp_server.server.db_get_conversation",
-                       new_callable=AsyncMock, return_value=mock_entries):
-                result = await get_conversation("alice", session_id="sess-1")
+            with patch("src.mcp_server.server.db_get_conversation_tree",
+                       new_callable=AsyncMock, return_value=mock_tree):
+                result = await get_conversation("alice", conversation_id="project-alpha")
         data = json.loads(result)
-        assert data["total"] == 2
-        assert data["entries"][0]["role"] == "user"
+        assert data["user_id"] == "alice"
+        assert data["conversation_count"] == 1
+        conv = data["conversations"]["project-alpha"]
+        assert conv["sessions"]["sess-1"]["entry_count"] == 2
+        assert conv["sessions"]["sess-1"]["entries"][0]["role"] == "user"
 
     @pytest.mark.asyncio
     async def test_get_respects_limit_cap(self):
         from src.mcp_server.server import get_conversation
         with patch("src.mcp_server.server.audit_log", new_callable=AsyncMock):
-            with patch("src.mcp_server.server.db_get_conversation",
-                       new_callable=AsyncMock, return_value=[]) as mock_fn:
+            with patch("src.mcp_server.server.db_get_conversation_tree",
+                       new_callable=AsyncMock, return_value={}) as mock_fn:
                 await get_conversation("alice", limit=1000)
                 _, kwargs = mock_fn.call_args
                 assert kwargs["limit"] == 500
@@ -295,18 +328,21 @@ class TestListConversationsMCPTool:
             await list_conversations("")
 
     @pytest.mark.asyncio
-    async def test_list_returns_sessions(self):
+    async def test_list_returns_conversation_summaries(self):
         from src.mcp_server.server import list_conversations
-        mock_sessions = [
-            {"session_id": "sess-1", "user_id": "alice", "entry_count": 4,
+        mock_conversations = [
+            {"conversation_id": "project-alpha", "user_id": "alice",
+             "session_count": 3, "total_entries": 12,
              "latest_at": "2026-01-02T00:00:00"},
-            {"session_id": "sess-2", "user_id": "alice", "entry_count": 1,
+            {"conversation_id": "project-beta", "user_id": "alice",
+             "session_count": 1, "total_entries": 2,
              "latest_at": "2026-01-01T00:00:00"},
         ]
         with patch("src.mcp_server.server.audit_log", new_callable=AsyncMock):
-            with patch("src.mcp_server.server.db_list_conversation_sessions",
-                       new_callable=AsyncMock, return_value=mock_sessions):
+            with patch("src.mcp_server.server.db_list_conversations",
+                       new_callable=AsyncMock, return_value=mock_conversations):
                 result = await list_conversations("alice")
         data = json.loads(result)
         assert data["total"] == 2
-        assert data["sessions"][0]["session_id"] == "sess-1"
+        assert data["conversations"][0]["conversation_id"] == "project-alpha"
+        assert data["conversations"][0]["session_count"] == 3
