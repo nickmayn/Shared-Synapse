@@ -16,6 +16,8 @@ COLLECTION_METADATA: dict[str, dict] = {
     "skills": {},
     "rules": {},
     "audit_log": {},
+    "nominations": {},
+    "conversations": {},
 }
 
 
