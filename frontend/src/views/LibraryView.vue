@@ -3,9 +3,11 @@ import { computed, onMounted, ref } from 'vue'
 import {
   deleteResource,
   getResourceDetail,
-  importLocalProjectResources,
+  getSynapse,
+  listSynapses,
   searchLibraryResources,
   updateResource,
+  upsertSynapse,
 } from '../api.js'
 
 const LIBRARY_PAGE_SIZE = 12
@@ -18,6 +20,7 @@ const error = ref('')
 const notice = ref('')
 const localInstallLoading = ref(false)
 const removingResourceId = ref('')
+const attachingResourceId = ref('')
 const resources = ref({
   items: [],
   total: 0,
@@ -33,6 +36,13 @@ const editorSaving = ref(false)
 const editorError = ref('')
 const editorForm = ref({ type: '', id: '', name: '', description: '', content: '' })
 
+const attachOpen = ref(false)
+const attachLoading = ref(false)
+const attachError = ref('')
+const attachResource = ref(null)
+const synapseOptions = ref([])
+const attachTarget = ref('')
+
 const groupTypeMap = {
   skills: 'skill',
   rules: 'rule',
@@ -46,6 +56,10 @@ const resourceTabs = computed(() => ([
 ]))
 
 const activeTabLabel = computed(() => resourceTabs.value.find((tab) => tab.id === activeResourceTab.value)?.label || 'Resources')
+
+function formatSynapseName(name) {
+  return name === 'core-brainstem' ? 'Brainstem' : name
+}
 
 async function loadResources() {
   loading.value = true
@@ -80,6 +94,20 @@ async function loadResources() {
   }
 }
 
+async function loadSynapseOptions() {
+  try {
+    const data = await listSynapses()
+    synapseOptions.value = [...(data.synapses || [])]
+      .sort((left, right) => left.name.localeCompare(right.name))
+    if (!synapseOptions.value.some((synapse) => synapse.name === attachTarget.value)) {
+      attachTarget.value = synapseOptions.value[0]?.name || ''
+    }
+  } catch {
+    synapseOptions.value = []
+    attachTarget.value = ''
+  }
+}
+
 async function applySearch() {
   resourcePage.value = 1
   await loadResources()
@@ -95,27 +123,6 @@ async function changeResourceTab(tabId) {
 async function goToResourcePage(page) {
   resourcePage.value = page
   await loadResources()
-}
-
-async function installProjectLibrary() {
-  localInstallLoading.value = true
-  error.value = ''
-  notice.value = ''
-  try {
-    const data = await importLocalProjectResources({
-      types: ['skill', 'rule', 'tool'],
-      synapse_name: 'core-brainstem',
-    })
-    notice.value = `Installed ${data.success} bundled resources into core-brainstem.`
-    if (data.failed) {
-      error.value = `${data.failed} files could not be indexed.`
-    }
-    await loadResources()
-  } catch (e) {
-    error.value = e.response?.data?.detail || 'Project install failed.'
-  } finally {
-    localInstallLoading.value = false
-  }
 }
 
 async function openEditor(resourceType, resourceId) {
@@ -183,7 +190,61 @@ async function removeLibraryResource(resource) {
   }
 }
 
-onMounted(loadResources)
+function openAttachDialog(resource) {
+  attachResource.value = resource
+  attachError.value = ''
+  attachOpen.value = true
+  if (!synapseOptions.value.length) {
+    attachTarget.value = ''
+  }
+}
+
+function closeAttachDialog() {
+  attachOpen.value = false
+  attachLoading.value = false
+  attachError.value = ''
+  attachResource.value = null
+}
+
+async function confirmAttachToSynapse() {
+  if (!attachResource.value || !attachTarget.value) {
+    attachError.value = 'Select a synapse before attaching a resource.'
+    return
+  }
+
+  attachingResourceId.value = attachResource.value.id
+  attachLoading.value = true
+  attachError.value = ''
+  error.value = ''
+  notice.value = ''
+
+  try {
+    const synapse = await getSynapse(attachTarget.value)
+    const includes = new Set(synapse.includes || [])
+    includes.add(attachResource.value.id)
+    await upsertSynapse(synapse.name, {
+      name: synapse.name,
+      description: synapse.description,
+      activation: synapse.activation || 'optional',
+      includes: [...includes],
+      tags: synapse.tags || [],
+      common_tasks: synapse.common_tasks || [],
+      recommended_tools: synapse.recommended_tools || [],
+      extends: synapse.extends || [],
+    })
+    notice.value = `Attached ${attachResource.value.id} to ${formatSynapseName(attachTarget.value)}.`
+    closeAttachDialog()
+  } catch (e) {
+    attachError.value = e.response?.data?.detail || 'Failed to attach resource to the synapse.'
+  } finally {
+    attachingResourceId.value = ''
+    attachLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([loadResources(), loadSynapseOptions()])
+})
 </script>
 
 <template>
@@ -193,12 +254,9 @@ onMounted(loadResources)
         <p class="eyebrow">Shared Library</p>
         <h1>Installed skills, rules, and tools</h1>
         <p class="library-copy">
-          Search the shared library, edit the resources you already installed, and remove anything that should no longer be available across synapses.
+          Manage what is already in the local shared library, edit resource content, remove anything stale, and attach installed resources directly to a synapse without leaving this screen.
         </p>
       </div>
-      <button type="button" class="btn-primary" :disabled="localInstallLoading" @click="installProjectLibrary">
-        {{ localInstallLoading ? 'Installing…' : 'Install Project Resources' }}
-      </button>
     </section>
 
     <section class="panel-surface library-browser">
@@ -219,15 +277,15 @@ onMounted(loadResources)
 
         <div class="library-toolbar__controls">
           <label class="resource-search">
-            <span>Search {{ activeTabLabel.toLowerCase() }}</span>
+            <span>Search installed {{ activeTabLabel.toLowerCase() }}</span>
             <input
               v-model="searchQuery"
               type="text"
-              :placeholder="`Search ${activeTabLabel.toLowerCase()} by name, description, or path`"
+              :placeholder="`Search installed ${activeTabLabel.toLowerCase()} by name, description, or path`"
             />
           </label>
           <button type="submit" class="btn-secondary" :disabled="loading">
-            {{ loading ? 'Searching…' : 'Search' }}
+            {{ loading ? 'Searching…' : 'Search Installed' }}
           </button>
         </div>
       </form>
@@ -242,6 +300,9 @@ onMounted(loadResources)
           <p>{{ resource.description || resource.id }}</p>
           <small>{{ resource.source_path }}</small>
           <div class="resource-card__actions">
+            <button type="button" class="btn-chip" :disabled="!synapseOptions.length || attachingResourceId === resource.id" @click="openAttachDialog(resource)">
+              {{ attachingResourceId === resource.id ? 'Attaching…' : 'Add To Synapse' }}
+            </button>
             <button type="button" class="btn-chip btn-chip--secondary" @click="openEditor(groupTypeMap[activeResourceTab], resource.id)">
               View / Edit
             </button>
@@ -283,6 +344,40 @@ onMounted(loadResources)
         </button>
       </div>
     </section>
+
+    <div v-if="attachOpen" class="editor-overlay" @click.self="closeAttachDialog">
+      <div class="attach-modal">
+        <div class="editor-modal__header">
+          <div>
+            <p class="eyebrow">Attach Resource</p>
+            <h2>{{ attachResource?.name || attachResource?.id }}</h2>
+          </div>
+          <button type="button" class="btn-close" @click="closeAttachDialog">×</button>
+        </div>
+
+        <div class="attach-form">
+          <label>
+            Synapse
+            <select v-model="attachTarget">
+              <option disabled value="">Select a synapse</option>
+              <option v-for="synapse in synapseOptions" :key="synapse.name" :value="synapse.name">
+                {{ formatSynapseName(synapse.name) }}
+              </option>
+            </select>
+          </label>
+
+          <p class="attach-copy">This keeps the resource in the shared library and adds its id to the selected synapse includes list.</p>
+          <p v-if="attachError" class="form-error">{{ attachError }}</p>
+
+          <div class="form-actions">
+            <button type="button" class="btn-primary" :disabled="attachLoading || !attachTarget" @click="confirmAttachToSynapse">
+              {{ attachLoading ? 'Attaching…' : 'Confirm Attach' }}
+            </button>
+            <button type="button" class="btn-cancel btn-cancel--button" @click="closeAttachDialog">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div v-if="editorOpen" class="editor-overlay" @click.self="closeEditor">
       <div class="editor-modal">
@@ -358,7 +453,8 @@ onMounted(loadResources)
   font-family: 'Space Grotesk', sans-serif;
 }
 
-.library-copy {
+.library-copy,
+.attach-copy {
   margin: 0.65rem 0 0;
   color: var(--muted);
   line-height: 1.6;
@@ -413,7 +509,8 @@ onMounted(loadResources)
   box-shadow: 0 12px 28px rgba(20, 33, 61, 0.08);
 }
 
-.resource-search {
+.resource-search,
+.attach-form label {
   display: grid;
   gap: 0.45rem;
   font-size: 0.85rem;
@@ -518,7 +615,8 @@ onMounted(loadResources)
   z-index: 200;
 }
 
-.editor-modal {
+.editor-modal,
+.attach-modal {
   width: min(860px, 100%);
   max-height: calc(100vh - 2rem);
   overflow: auto;
@@ -529,7 +627,12 @@ onMounted(loadResources)
   box-shadow: var(--shadow);
 }
 
-.editor-form {
+.attach-modal {
+  width: min(520px, 100%);
+}
+
+.editor-form,
+.attach-form {
   display: grid;
   gap: 1rem;
 }

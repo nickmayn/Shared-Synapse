@@ -71,10 +71,16 @@ export const deactivateSynapse = (name) =>
   http.post(`/api/synapses/${name}/deactivate`).then((r) => r.data)
 
 // GitHub import
-export const searchGithubRepos = (query) =>
-  http.get('/api/import/github/repos', { params: { query } }).then((r) => r.data)
+export const searchGithubRepos = (query, page = 1, pageSize = 8) =>
+  http.get('/api/import/github/repos', { params: { query, page, page_size: pageSize } }).then((r) => r.data)
 export const listGithubCandidates = (repo, kind, query) =>
   http.get('/api/import/github/candidates', { params: { repo, kind, query } }).then((r) => r.data)
+export const searchSkillsDirectory = (query, page = 1, pageSize = 8) =>
+  http.get('/api/import/skills/search', { params: { query, page, page_size: pageSize } }).then((r) => r.data)
+export const searchHostedMcpConnectors = (query, page = 1, pageSize = 5) =>
+  http.get('/api/import/mcp/hosted/search', { params: { query, page, page_size: pageSize } }).then((r) => r.data)
+export const getSkillsDirectoryDetail = (source, skillId) =>
+  http.get('/api/import/skills/detail', { params: { source, skill_id: skillId } }).then((r) => r.data)
 export const importGithubCandidate = (body) =>
   http.post('/api/import/github/import', body).then((r) => r.data)
 export const importLocalProjectResources = (body = { types: ['skill', 'rule', 'tool'] }) =>

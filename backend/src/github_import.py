@@ -17,28 +17,38 @@ _IMPORTABLE_EXTENSIONS = (".md", ".markdown", ".json", ".yaml", ".yml")
 _GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
 
 
-def search_repositories(query: str, limit: int = 8) -> list[dict]:
+def search_repositories_page(query: str, limit: int = 8, page: int = 1) -> dict:
     """Search public GitHub repositories that may contain shareable knowledge assets."""
     normalized_query = query.strip()
     if not normalized_query:
-        return []
+        return {"items": [], "total_count": 0, "page": page, "per_page": limit}
 
     payload = _github_get_json(
-        f"{GITHUB_API_BASE}/search/repositories?q={quote_plus(normalized_query)}&sort=stars&per_page={limit}"
+        f"{GITHUB_API_BASE}/search/repositories?q={quote_plus(normalized_query)}&sort=stars&per_page={limit}&page={page}"
     )
     items = payload.get("items", []) if isinstance(payload, dict) else []
-    return [
-        {
-            "full_name": item.get("full_name", ""),
-            "description": item.get("description") or "",
-            "html_url": item.get("html_url", ""),
-            "default_branch": item.get("default_branch") or "main",
-            "stargazers_count": int(item.get("stargazers_count") or 0),
-            "language": item.get("language") or "",
-        }
-        for item in items
-        if item.get("full_name")
-    ]
+    return {
+        "items": [
+            {
+                "full_name": item.get("full_name", ""),
+                "description": item.get("description") or "",
+                "html_url": item.get("html_url", ""),
+                "default_branch": item.get("default_branch") or "main",
+                "stargazers_count": int(item.get("stargazers_count") or 0),
+                "language": item.get("language") or "",
+            }
+            for item in items
+            if item.get("full_name")
+        ],
+        "total_count": int(payload.get("total_count") or 0),
+        "page": page,
+        "per_page": limit,
+    }
+
+
+def search_repositories(query: str, limit: int = 8) -> list[dict]:
+    """Backward-compatible first page of GitHub repository search results."""
+    return search_repositories_page(query, limit=limit, page=1)["items"]
 
 
 def list_import_candidates(

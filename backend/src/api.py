@@ -31,13 +31,15 @@ from .db.synapses_store import (
     list_synapses as db_list_synapses,
     upsert_synapse as db_upsert_synapse,
 )
+from .glama_import import search_hosted_connectors
 from .db.users_store import ensure_admin_exists
-from .github_import import fetch_import_document, list_import_candidates, search_repositories
+from .github_import import fetch_import_document, list_import_candidates, search_repositories_page
 from .ingestion import ingest_file, run_ingestion
 from .ingestion.chunker import chunk_text
 from .ingestion.embeddings import embed_texts as embed_texts_batch
 from .ingestion.parser import VALID_DOCUMENT_TYPES, parse_file
 from .retrieval import hybrid_search, rank_results
+from .skills_import import search_skills
 from .user_management import router as users_router
 
 logger = logging.getLogger(__name__)
@@ -570,9 +572,11 @@ class ImportLocalResourcesRequest(BaseModel):
     synapse_name: Optional[str] = None
 
 
-def _resolve_import_synapse(synapse_name: Optional[str]) -> dict:
-    """Resolve the import target synapse, defaulting to the core brain stem."""
-    target_name = (synapse_name or "core-brainstem").strip() or "core-brainstem"
+def _resolve_import_synapse(synapse_name: Optional[str]) -> Optional[dict]:
+    """Resolve an optional import target synapse for flows that may index into the shared library only."""
+    target_name = (synapse_name or "").strip()
+    if not target_name:
+        return None
     synapse = db_get_synapse(target_name)
     if synapse is None:
         raise HTTPException(status_code=404, detail=f"Synapse '{target_name}' not found")
@@ -627,13 +631,125 @@ async def api_add_knowledge(body: AddKnowledgeRequest) -> dict:
 
 
 @app.get("/api/import/github/repos", dependencies=[Depends(require_role("viewer"))])
-async def api_search_github_repos(query: str) -> dict:
+async def api_search_github_repos(query: str, page: int = Query(1, ge=1), page_size: int = Query(8, ge=1, le=20)) -> dict:
     if not query.strip():
-        return {"repos": []}
+        return {"repos": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
     try:
-        return {"repos": search_repositories(query)}
+        result = search_repositories_page(query, limit=page_size, page=page)
+        total = result["total_count"]
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        return {
+            "repos": result["items"],
+            "total": total,
+            "page": result["page"],
+            "page_size": result["per_page"],
+            "total_pages": total_pages,
+        }
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/import/skills/search", dependencies=[Depends(require_role("viewer"))])
+async def api_search_skills(query: str, page: int = Query(1, ge=1), page_size: int = Query(8, ge=1, le=20)) -> dict:
+    if not query.strip():
+        return {"skills": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
+
+    fetch_limit = min(max(page * page_size, page_size), 100)
+    try:
+        matches = search_skills(query, limit=fetch_limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    total = len(matches)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    current_page = min(page, total_pages)
+    start = (current_page - 1) * page_size
+    end = start + page_size
+    return {
+        "skills": matches[start:end],
+        "total": total,
+        "page": current_page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
+
+
+@app.get("/api/import/skills/detail", dependencies=[Depends(require_role("viewer"))])
+async def api_skill_detail(source: str, skill_id: str) -> dict:
+    try:
+        candidates = list_import_candidates(source, kind="skill", limit=200)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    root_skill_candidates = [
+        candidate for candidate in candidates if candidate.get("name", "").lower() in {"skill.md", "skill.markdown"}
+    ]
+    if root_skill_candidates:
+        candidates = root_skill_candidates
+
+    normalized_skill_id = skill_id.strip().lower()
+    prioritized: list[dict] = []
+    remaining: list[dict] = []
+    for candidate in candidates:
+        haystack = f"{candidate.get('name', '')} {candidate.get('path', '')}".lower()
+        if normalized_skill_id and normalized_skill_id in haystack:
+            prioritized.append(candidate)
+        else:
+            remaining.append(candidate)
+    candidates = prioritized + remaining
+
+    description = ""
+    resolved_name = skill_id
+    primary_candidate = candidates[0] if candidates else None
+    if primary_candidate is not None:
+        try:
+            document = fetch_import_document(source, primary_candidate["path"])
+            description = document.get("description") or ""
+            resolved_name = document.get("name") or skill_id
+        except RuntimeError:
+            pass
+
+    return {
+        "source": source,
+        "skill_id": skill_id,
+        "name": resolved_name,
+        "description": description,
+        "page_url": f"https://skills.sh/{source}/{skill_id}",
+        "github_url": f"https://github.com/{source}",
+        "install_command": f"npx skills add {source}",
+        "bundle_size": len(candidates),
+        "candidates": candidates,
+        "primary_candidate": primary_candidate,
+    }
+
+
+@app.get("/api/import/mcp/hosted/search", dependencies=[Depends(require_role("viewer"))])
+async def api_search_hosted_mcp_connectors(
+    query: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(5, ge=1, le=10),
+) -> dict:
+    if not query.strip():
+        return {"connectors": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
+
+    fetch_limit = min(max(page * page_size, page_size), 20)
+    try:
+        matches = search_hosted_connectors(query, limit=fetch_limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    total = len(matches)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    current_page = min(page, total_pages)
+    start = (current_page - 1) * page_size
+    end = start + page_size
+    return {
+        "connectors": matches[start:end],
+        "total": total,
+        "page": current_page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 @app.get("/api/import/github/candidates", dependencies=[Depends(require_role("viewer"))])
@@ -676,8 +792,9 @@ async def api_import_github_document(body: ImportGithubDocumentRequest) -> dict:
         },
         "chunks": chunks,
     }
-    updated_synapse = _attach_resource_to_synapse(synapse, document["id"])
-    response["synapse"] = updated_synapse
+    if synapse is not None:
+        updated_synapse = _attach_resource_to_synapse(synapse, document["id"])
+        response["synapse"] = updated_synapse
     return response
 
 
@@ -697,7 +814,8 @@ async def api_import_local_project_resources(body: ImportLocalResourcesRequest) 
 
         if await ingest_file(str(path)):
             metadata = parsed.get("metadata") or {}
-            synapse = _attach_resource_to_synapse(synapse, parsed["id"])
+            if synapse is not None:
+                synapse = _attach_resource_to_synapse(synapse, parsed["id"])
             imported.append({
                 "id": parsed["id"],
                 "type": parsed["type"],
