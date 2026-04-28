@@ -26,6 +26,19 @@ from ..db.skills_store import (
     mark_skills_for_refresh,
 )
 from ..db.rules_store import get_rule as db_get_rule, list_rules as db_list_rules
+from ..db.nominations_store import (
+    nominate_knowledge as db_nominate_knowledge,
+    get_nomination as db_get_nomination,
+    list_nominations as db_list_nominations,
+    vote_nomination as db_vote_nomination,
+    update_nomination_status as db_update_nomination_status,
+    NOMINATION_STATUSES,
+)
+from ..db.conversations_store import (
+    add_conversation_entry as db_add_conversation_entry,
+    get_conversation_tree as db_get_conversation_tree,
+    list_conversations as db_list_conversations,
+)
 from ..ingestion import run_ingestion, ingest_file, delete_knowledge as pipeline_delete_knowledge
 from ..ingestion.chunker import chunk_text
 from ..ingestion.embeddings import embed_text, embed_texts as embed_texts_batch
@@ -507,6 +520,257 @@ async def list_rules(context: Optional[str] = None) -> str:
 
     rules = await db_list_rules(context=context)
     return json.dumps({"rules": [dict(r) for r in rules], "total": len(rules)}, default=str)
+
+
+@mcp.tool()
+async def nominate_knowledge(
+    id: str,
+    nominator: str,
+    type: str,
+    content: str,
+    metadata: Optional[str] = None,
+) -> str:
+    """
+    Nominate a knowledge document for inclusion in the shared neurons.
+    Concurrent users can nominate, vote on, and approve entries collaboratively.
+    id: unique identifier for this nomination
+    nominator: user ID or name of the person submitting the nomination
+    type: one of concept, decision, design, skill, rule, document
+    content: the knowledge content being nominated
+    metadata: optional JSON string of additional metadata fields
+    """
+    if not id or not isinstance(id, str):
+        raise ValueError("id must be a non-empty string")
+    if not nominator or not isinstance(nominator, str):
+        raise ValueError("nominator must be a non-empty string")
+    content = validate_query(content)
+
+    if type not in VALID_DOCUMENT_TYPES:
+        raise ValueError(f"type must be one of: {', '.join(sorted(VALID_DOCUMENT_TYPES))}")
+
+    parsed_meta: dict = {}
+    if metadata:
+        try:
+            parsed_meta = json.loads(metadata)
+        except json.JSONDecodeError:
+            raise ValueError("metadata must be valid JSON")
+
+    await audit_log("nominate_knowledge", resource_type=type, resource_id=id,
+                    details={"nominator": nominator, "content_length": len(content)})
+
+    await db_nominate_knowledge(id=id, nominator=nominator, type=type,
+                                content=content, metadata=parsed_meta)
+
+    return json.dumps({"status": "nominated", "id": id, "nominator": nominator, "type": type})
+
+
+@mcp.tool()
+async def list_nominations(status: Optional[str] = None) -> str:
+    """
+    List knowledge nominations, optionally filtered by status.
+    status: 'pending', 'approved', or 'rejected' (omit for all)
+    Returns nominations ordered newest first.
+    """
+    if status and status not in NOMINATION_STATUSES:
+        raise ValueError(f"status must be one of: {', '.join(sorted(NOMINATION_STATUSES))}")
+
+    await audit_log("list_nominations", details={"status": status})
+
+    nominations = await db_list_nominations(status=status)
+    return json.dumps({"nominations": nominations, "total": len(nominations)}, default=str)
+
+
+@mcp.tool()
+async def vote_nomination(nomination_id: str, voter: str, vote: str) -> str:
+    """
+    Cast a vote on a pending knowledge nomination.
+    nomination_id: ID of the nomination to vote on
+    voter: user ID or name of the voter
+    vote: 'up' or 'down'
+    Each voter may only vote once; a second call replaces the previous vote.
+    """
+    if not nomination_id or not isinstance(nomination_id, str):
+        raise ValueError("nomination_id must be a non-empty string")
+    if not voter or not isinstance(voter, str):
+        raise ValueError("voter must be a non-empty string")
+    if vote not in ("up", "down"):
+        raise ValueError("vote must be 'up' or 'down'")
+
+    await audit_log("vote_nomination", resource_type="nomination", resource_id=nomination_id,
+                    details={"voter": voter, "vote": vote})
+
+    updated = await db_vote_nomination(nomination_id=nomination_id, voter=voter, vote=vote)
+    if updated is None:
+        return json.dumps({"error": f"Nomination not found: {nomination_id}"})
+
+    return json.dumps({"status": "voted", **updated}, default=str)
+
+
+@mcp.tool()
+async def approve_nomination(nomination_id: str) -> str:
+    """
+    Approve a knowledge nomination and ingest it into the shared neuron store.
+    The nominated content is immediately indexed and visible to all connected agents.
+    """
+    if not nomination_id or not isinstance(nomination_id, str):
+        raise ValueError("nomination_id must be a non-empty string")
+
+    await audit_log("approve_nomination", resource_type="nomination", resource_id=nomination_id)
+
+    nomination = await db_get_nomination(nomination_id)
+    if nomination is None:
+        return json.dumps({"error": f"Nomination not found: {nomination_id}"})
+
+    if nomination["status"] == "approved":
+        return json.dumps({"status": "already_approved", "id": nomination_id})
+
+    await db_update_nomination_status(nomination_id, "approved")
+
+    doc_meta = {
+        "source": "nomination",
+        "nominator": nomination["nominator"],
+        "nomination_id": nomination_id,
+        **nomination["metadata"],
+    }
+    await upsert_document(nomination_id, nomination["type"], nomination["content"], doc_meta)
+
+    chunks = chunk_text(nomination["content"], nomination_id)
+    if chunks:
+        embeddings = embed_texts_batch([c["content"] for c in chunks])
+        await delete_chunks_for_document(nomination_id)
+        for chunk, embedding in zip(chunks, embeddings):
+            chunk_meta = {**chunk["metadata"], "document_type": nomination["type"]}
+            if "tags" in doc_meta:
+                chunk_meta["tags"] = doc_meta["tags"]
+            await upsert_chunk(
+                id=chunk["id"],
+                document_id=nomination_id,
+                content=chunk["content"],
+                embedding=embedding,
+                metadata=chunk_meta,
+            )
+
+    logger.info(f"approve_nomination: ingested '{nomination_id}' ({nomination['type']}), "
+                f"{len(chunks)} chunks")
+    return json.dumps({
+        "status": "approved",
+        "id": nomination_id,
+        "type": nomination["type"],
+        "chunks": len(chunks),
+    })
+
+
+@mcp.tool()
+async def reject_nomination(nomination_id: str) -> str:
+    """
+    Reject a knowledge nomination.
+    The nominated content is not ingested into the shared neuron store.
+    """
+    if not nomination_id or not isinstance(nomination_id, str):
+        raise ValueError("nomination_id must be a non-empty string")
+
+    await audit_log("reject_nomination", resource_type="nomination", resource_id=nomination_id)
+
+    nomination = await db_get_nomination(nomination_id)
+    if nomination is None:
+        return json.dumps({"error": f"Nomination not found: {nomination_id}"})
+
+    await db_update_nomination_status(nomination_id, "rejected")
+    return json.dumps({"status": "rejected", "id": nomination_id})
+
+
+@mcp.tool()
+async def add_conversation_entry(
+    user_id: str,
+    role: str,
+    content: str,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> str:
+    """
+    Append an entry to a user's nested conversation history (memory palace layer).
+    user_id: identifier for the user or agent
+    role: 'user' or 'agent'
+    content: the message or response text
+    conversation_id: named topic context (a room in the memory palace);
+                     a new UUID is assigned if omitted
+    session_id: temporal grouping within a conversation (a visit to that room);
+                a new UUID is assigned if omitted
+    Returns the created entry ID together with conversation_id and session_id so
+    callers can keep the context alive across subsequent turns.
+    """
+    if not user_id or not isinstance(user_id, str):
+        raise ValueError("user_id must be a non-empty string")
+    if role not in ("user", "agent"):
+        raise ValueError("role must be 'user' or 'agent'")
+    content = validate_query(content)
+
+    await audit_log("add_conversation_entry", resource_type="conversation", resource_id=user_id,
+                    details={"role": role, "conversation_id": conversation_id,
+                             "session_id": session_id})
+
+    entry_id = await db_add_conversation_entry(
+        user_id=user_id, role=role, content=content,
+        conversation_id=conversation_id, session_id=session_id,
+    )
+    return json.dumps({
+        "status": "added",
+        "entry_id": entry_id,
+        "user_id": user_id,
+        "role": role,
+        "conversation_id": conversation_id,
+        "session_id": session_id,
+    })
+
+
+@mcp.tool()
+async def get_conversation(
+    user_id: str,
+    conversation_id: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> str:
+    """
+    Retrieve the nested conversation tree for a user (memory palace structure).
+    Returns conversations → sessions → entries, oldest-first within each session.
+    user_id: user identifier
+    conversation_id: optional filter to a single named conversation room;
+                     omit to retrieve the full tree for this user
+    limit: maximum entries per session (default 100, max 500)
+    """
+    if not user_id or not isinstance(user_id, str):
+        raise ValueError("user_id must be a non-empty string")
+
+    resolved_limit = min(int(limit), 500) if limit is not None else 100
+
+    await audit_log("get_conversation", resource_type="conversation", resource_id=user_id,
+                    details={"conversation_id": conversation_id, "limit": resolved_limit})
+
+    tree = await db_get_conversation_tree(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        limit=resolved_limit,
+    )
+    return json.dumps({
+        "user_id": user_id,
+        "conversations": tree,
+        "conversation_count": len(tree),
+    }, default=str)
+
+
+@mcp.tool()
+async def list_conversations(user_id: str) -> str:
+    """
+    List all conversation rooms for a user (memory palace room index).
+    Returns conversation summaries with session count, total entry count,
+    and latest timestamp, ordered newest first.
+    """
+    if not user_id or not isinstance(user_id, str):
+        raise ValueError("user_id must be a non-empty string")
+
+    await audit_log("list_conversations", resource_type="conversation", resource_id=user_id)
+
+    conversations = await db_list_conversations(user_id=user_id)
+    return json.dumps({"conversations": conversations, "total": len(conversations)}, default=str)
 
 
 def main():

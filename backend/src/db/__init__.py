@@ -11,6 +11,18 @@ from .skills_store import (
     clear_refresh_flag,
 )
 from .rules_store import upsert_rule, get_rule, list_rules
+from .nominations_store import (
+    nominate_knowledge,
+    get_nomination,
+    list_nominations,
+    vote_nomination,
+    update_nomination_status,
+)
+from .conversations_store import (
+    add_conversation_entry,
+    get_conversation_tree,
+    list_conversations,
+)
 
 __all__ = [
     "get_client", "get_pool", "close_client", "close_pool",
@@ -20,4 +32,7 @@ __all__ = [
     "upsert_skill", "get_skill", "list_skills",
     "mark_skills_for_refresh", "get_skills_needing_refresh", "clear_refresh_flag",
     "upsert_rule", "get_rule", "list_rules",
+    "nominate_knowledge", "get_nomination", "list_nominations",
+    "vote_nomination", "update_nomination_status",
+    "add_conversation_entry", "get_conversation_tree", "list_conversations",
 ]

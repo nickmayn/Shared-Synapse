@@ -108,6 +108,14 @@ synapses/           # YAML activation bundles connecting neurons and the core br
 | `upsert_skill` | Create or update a skill; immediately shared with all connected agents |
 | `get_rule` | Retrieve a behavioral rule by ID |
 | `list_rules` | List rules by priority; optionally filtered by context |
+| `nominate_knowledge` | Nominate a knowledge document for inclusion in shared neurons (concurrent users can propose, vote, approve) |
+| `list_nominations` | List knowledge nominations filtered by status (`pending`, `approved`, `rejected`) |
+| `vote_nomination` | Cast an up/down vote on a pending nomination; each user may vote once |
+| `approve_nomination` | Approve a nomination and immediately ingest it into the shared neuron store |
+| `reject_nomination` | Reject a nomination without ingesting it |
+| `add_conversation_entry` | Append an entry to a user's per-user nested conversation history (memory palace layer: conversation → session → entry) |
+| `get_conversation` | Retrieve a user's full conversation tree nested as conversations → sessions → entries, oldest-first |
+| `list_conversations` | List all named conversation rooms for a user with session and entry counts, newest first |
 
 ### Example: search_knowledge
 
