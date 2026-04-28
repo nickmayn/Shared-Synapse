@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Compiled output
+dist/
+out/
+*.vsix
+
+# Local env files
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor directories
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

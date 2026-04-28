@@ -39,6 +39,14 @@ from ..db.conversations_store import (
     get_conversation_tree as db_get_conversation_tree,
     list_conversations as db_list_conversations,
 )
+from ..db.synapses_store import (
+    list_synapses as db_list_synapses,
+    get_synapse as db_get_synapse_detail,
+    upsert_synapse as db_upsert_synapse,
+    delete_synapse as db_delete_synapse,
+    activate_synapse as db_activate_synapse,
+    deactivate_synapse as db_deactivate_synapse,
+)
 from ..ingestion import run_ingestion, ingest_file, delete_knowledge as pipeline_delete_knowledge
 from ..ingestion.chunker import chunk_text
 from ..ingestion.embeddings import embed_text, embed_texts as embed_texts_batch
@@ -771,6 +779,153 @@ async def list_conversations(user_id: str) -> str:
 
     conversations = await db_list_conversations(user_id=user_id)
     return json.dumps({"conversations": conversations, "total": len(conversations)}, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Synapse / Neuron management tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def list_synapses() -> str:
+    """
+    List all synapse (neuron activation bundle) definitions.
+    Returns each synapse name, description, activation type, tags, and current active status.
+    """
+    await audit_log("list_synapses")
+    synapses = db_list_synapses()
+    return json.dumps({"synapses": synapses, "total": len(synapses)}, default=str)
+
+
+@mcp.tool()
+async def get_synapse_detail(name: str) -> str:
+    """
+    Retrieve the full definition of a named synapse including includes, tags,
+    common_tasks, recommended_tools, and active status.
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError("name must be a non-empty string")
+    await audit_log("get_synapse_detail", resource_type="synapse", resource_id=name)
+    synapse = db_get_synapse_detail(name)
+    if synapse is None:
+        return json.dumps({"error": f"Synapse not found: {name}"})
+    return json.dumps(synapse, default=str)
+
+
+@mcp.tool()
+async def upsert_synapse(
+    name: str,
+    description: str,
+    activation: Optional[str] = "optional",
+    includes: Optional[str] = None,
+    tags: Optional[str] = None,
+    common_tasks: Optional[str] = None,
+    recommended_tools: Optional[str] = None,
+    extends: Optional[str] = None,
+) -> str:
+    """
+    Create or update a synapse YAML bundle.
+    includes / tags / common_tasks / recommended_tools / extends: JSON arrays
+    activation: 'core' (always-on) or 'optional' (must be activated)
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError("name must be a non-empty string")
+
+    def _parse_list(raw: Optional[str], field: str) -> Optional[list]:
+        if raw is None:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            raise ValueError(f"{field} must be a valid JSON array")
+
+    includes_list = _parse_list(includes, "includes")
+    tags_list = _parse_list(tags, "tags")
+    tasks_list = _parse_list(common_tasks, "common_tasks")
+    tools_list = _parse_list(recommended_tools, "recommended_tools")
+    extends_list = _parse_list(extends, "extends")
+
+    await audit_log("upsert_synapse", resource_type="synapse", resource_id=name)
+
+    try:
+        result = db_upsert_synapse(
+            name=name,
+            description=description,
+            activation=activation or "optional",
+            includes=includes_list,
+            tags=tags_list,
+            common_tasks=tasks_list,
+            recommended_tools=tools_list,
+            extends=extends_list,
+        )
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+
+    # Re-ingest so the new synapse is available in semantic search
+    try:
+        import os
+        from ..ingestion.pipeline import DEFAULT_REPO_ROOT
+        synapse_file = str(
+            (DEFAULT_REPO_ROOT / "synapses" / f"{name}.yaml")
+        )
+        await ingest_file(synapse_file)
+    except Exception as exc:
+        logger.warning(f"upsert_synapse: re-ingest failed: {exc}")
+
+    return json.dumps({"status": "upserted", **result}, default=str)
+
+
+@mcp.tool()
+async def delete_synapse(name: str) -> str:
+    """
+    Delete a synapse YAML bundle and purge its index entries.
+    Core synapses cannot be deleted via this tool.
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError("name must be a non-empty string")
+
+    existing = db_get_synapse_detail(name)
+    if existing is None:
+        return json.dumps({"error": f"Synapse not found: {name}"})
+    if existing.get("activation") == "core":
+        return json.dumps({"error": "Core synapses cannot be deleted"})
+
+    await audit_log("delete_synapse", resource_type="synapse", resource_id=name)
+    db_delete_synapse(name)
+    await pipeline_delete_knowledge(name)
+    return json.dumps({"status": "deleted", "name": name})
+
+
+@mcp.tool()
+async def activate_synapse(name: str) -> str:
+    """
+    Activate an optional synapse so it is included in future context lookups.
+    Has no effect on core synapses (always active).
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError("name must be a non-empty string")
+    await audit_log("activate_synapse", resource_type="synapse", resource_id=name)
+    ok = db_activate_synapse(name)
+    if not ok:
+        return json.dumps({"error": f"Synapse not found: {name}"})
+    return json.dumps({"status": "activated", "name": name})
+
+
+@mcp.tool()
+async def deactivate_synapse(name: str) -> str:
+    """
+    Deactivate an optional synapse so it is excluded from context lookups.
+    Has no effect on core synapses (always active).
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError("name must be a non-empty string")
+
+    existing = db_get_synapse_detail(name)
+    if existing and existing.get("activation") == "core":
+        return json.dumps({"error": "Core synapses cannot be deactivated"})
+
+    await audit_log("deactivate_synapse", resource_type="synapse", resource_id=name)
+    db_deactivate_synapse(name)
+    return json.dumps({"status": "deactivated", "name": name})
 
 
 def main():

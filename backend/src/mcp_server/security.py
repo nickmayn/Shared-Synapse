@@ -54,7 +54,7 @@ async def audit_log(
     action: str,
     resource_type: Optional[str] = None,
     resource_id: Optional[str] = None,
-    actor: Optional[str] = "agent",
+    actor: Optional[str] = None,
     details: Optional[dict] = None,
 ) -> None:
     try:
