@@ -203,6 +203,19 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# JS/Node – frontend and VS Code extension
+frontend/node_modules/
+frontend/dist/
+vscode-extension/node_modules/
+vscode-extension/dist/
+vscode-extension/out/
+vscode-extension/*.vsix
+
+# CLI build artifacts
+cli/*.egg-info/
+cli/dist/
+cli/build/
+
 # Ruff stuff:
 .ruff_cache/
 
