@@ -229,3 +229,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local application databases
+.synapse_users.db
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+.chroma/

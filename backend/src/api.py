@@ -7,7 +7,7 @@ Mounts:
   /api/synapses - Synapse CRUD + activation (auth required)
 
 Run with:
-  uvicorn src.api:app --reload
+    uvicorn main:app --reload
 """
 import json
 import logging

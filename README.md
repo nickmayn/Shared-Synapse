@@ -70,7 +70,7 @@ python -m src.mcp_server.server
 
 ```bash
 cd backend
-uvicorn src.api:app --reload --port 8000
+uvicorn main:app --reload --port 8000
 ```
 
 The first startup creates an `admin` user with the password from `ADMIN_DEFAULT_PASSWORD` (default: `changeme`). Change it immediately.
