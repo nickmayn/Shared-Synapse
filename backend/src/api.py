@@ -178,6 +178,40 @@ def _public_resource(resource: dict) -> dict:
     return {key: value for key, value in resource.items() if key != "file_path"}
 
 
+def _read_text_if_supported(file_path: Path) -> Optional[str]:
+    """Return UTF-8 text for supported file types; skip binaries/unsupported files."""
+    if file_path.suffix.lower() not in {
+        ".md", ".markdown", ".txt", ".json", ".yaml", ".yml", ".py", ".js", ".ts", ".sh", ".csv",
+    }:
+        return None
+    try:
+        return file_path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return None
+
+
+def _skill_supporting_files(skill_markdown_path: Path) -> list[dict]:
+    """Collect package files alongside SKILL.md so clients can reconstruct full skills."""
+    if skill_markdown_path.name != "SKILL.md":
+        return []
+
+    root = skill_markdown_path.parent
+    supporting: list[dict] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path == skill_markdown_path:
+            continue
+
+        content = _read_text_if_supported(path)
+        if content is None:
+            continue
+
+        supporting.append({
+            "path": str(path.relative_to(root)),
+            "content": content,
+        })
+    return supporting
+
+
 async def _build_indexed_resource_groups() -> dict[str, list[dict]]:
     """Build grouped resources from indexed documents in Chroma."""
     grouped = _empty_resource_groups()
@@ -268,12 +302,15 @@ async def _get_resource_detail(resource_type: str, resource_id: str) -> Optional
         path = Path(resource["file_path"])
         if resource_type in {"skill", "rule"}:
             post = frontmatter.load(path)
-            return {
+            detail = {
                 **_public_resource(resource),
                 "content": post.content,
                 "editable": True,
                 "storage": "local",
             }
+            if resource_type == "skill":
+                detail["supporting_files"] = _skill_supporting_files(path)
+            return detail
         return {
             **_public_resource(resource),
             "content": path.read_text(encoding="utf-8"),

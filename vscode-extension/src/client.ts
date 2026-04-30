@@ -141,6 +141,7 @@ export class SynapseClient {
     description: string;
     type: string;
     content: string;
+    supporting_files?: { path: string; content: string }[];
   }> {
     return this.get(`/api/resources/${resourceType}/${encodeURIComponent(resourceId)}`);
   }

@@ -379,6 +379,36 @@ function getUserPromptsAgentsPath(): string {
   return path.join(os.homedir(), 'Library', 'Application Support', 'Code', 'User', 'prompts', 'agents');
 }
 
+function normalizeSupportingPath(relativePath: string): string | null {
+  const normalized = relativePath.replace(/\\/g, '/').trim();
+  if (!normalized || normalized.startsWith('/') || normalized.includes('..')) {
+    return null;
+  }
+  return normalized;
+}
+
+async function removeIfFile(filePath: string): Promise<void> {
+  try {
+    const stat = await fs.stat(filePath);
+    if (stat.isFile()) {
+      await fs.rm(filePath, { force: true });
+    }
+  } catch {
+    // no-op when file does not exist
+  }
+}
+
+async function prepareSkillPackageDirectory(skillsParentDir: string, skillId: string): Promise<string> {
+  const packageRoot = path.join(skillsParentDir, skillId);
+
+  // Migrate legacy flat-file layouts to package directory layout.
+  await removeIfFile(path.join(skillsParentDir, `${skillId}.md`));
+  await removeIfFile(path.join(skillsParentDir, skillId));
+
+  await fs.mkdir(packageRoot, { recursive: true });
+  return packageRoot;
+}
+
 /** Build skill package content for SKILL.md. */
 function buildAgentFileContent(detail: { id: string; name: string; description: string; content: string }): string {
   const frontmatter = [
@@ -493,6 +523,7 @@ async function syncActiveResourcesToWorkspace(
   }
 
   if (!extensionContext) return;
+  const ctx = extensionContext;
 
   const { localSyncPath } = getConfigurationState();
   const syncRoot = path.join(workspaceRoot, localSyncPath || '.agents');
@@ -545,53 +576,74 @@ async function syncActiveResourcesToWorkspace(
   const nextFiles: string[] = [];
   const counts = { skill: 0, rule: 0, tool: 0 };
 
+  const writeSkillBundleSupportFiles = async (
+    targetSkillRoot: string,
+    supportingFiles: { path: string; content: string }[] | undefined,
+  ): Promise<void> => {
+    if (!supportingFiles?.length) {
+      return;
+    }
+    for (const file of supportingFiles) {
+      const safeRelativePath = normalizeSupportingPath(file.path);
+      if (!safeRelativePath) {
+        continue;
+      }
+      const targetPath = path.join(targetSkillRoot, safeRelativePath);
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await backupAndWrite(targetPath, file.content, ctx);
+      nextFiles.push(targetPath);
+    }
+  };
+
   for (const resource of resourceMap.values()) {
     const detail = await synapseClient.getResourceDetail(resource.resourceType, resource.resourceId);
     const safeName = sanitizeFileName(detail.id);
 
     if (resource.resourceType === 'skill') {
       // Write skills as package dirs with SKILL.md so .agents skill loaders can detect them.
-      const skillPath = path.join(agentsSkillsDir, safeName, 'SKILL.md');
-      await fs.mkdir(path.dirname(skillPath), { recursive: true });
-      await backupAndWrite(skillPath, buildAgentFileContent(detail), extensionContext);
+      const workspaceSkillRoot = await prepareSkillPackageDirectory(agentsSkillsDir, safeName);
+      const skillPath = path.join(workspaceSkillRoot, 'SKILL.md');
+      await backupAndWrite(skillPath, buildAgentFileContent(detail), ctx);
       nextFiles.push(skillPath);
+      await writeSkillBundleSupportFiles(workspaceSkillRoot, detail.supporting_files);
 
-      const userSkillPath = path.join(userSkillsDir, safeName, 'SKILL.md');
-      await fs.mkdir(path.dirname(userSkillPath), { recursive: true });
-      await backupAndWrite(userSkillPath, buildAgentFileContent(detail), extensionContext);
+      const userSkillRoot = await prepareSkillPackageDirectory(userSkillsDir, safeName);
+      const userSkillPath = path.join(userSkillRoot, 'SKILL.md');
+      await backupAndWrite(userSkillPath, buildAgentFileContent(detail), ctx);
       nextFiles.push(userSkillPath);
+      await writeSkillBundleSupportFiles(userSkillRoot, detail.supporting_files);
 
       // Copilot user prompt agent copy for immediate pickup by the VS Code prompt loader.
       const copilotAgentPath = path.join(userPromptsAgentsDir, `${safeName}.agent.md`);
-      await backupAndWrite(copilotAgentPath, buildCopilotAgentFileContent(detail), extensionContext);
+      await backupAndWrite(copilotAgentPath, buildCopilotAgentFileContent(detail), ctx);
       nextFiles.push(copilotAgentPath);
 
       // Cursor skill mirror as .mdc rule file.
       const cursorSkillPath = path.join(cursorRulesDir, `skill-${safeName}.mdc`);
-      await backupAndWrite(cursorSkillPath, buildCursorSkillContent(detail), extensionContext);
+      await backupAndWrite(cursorSkillPath, buildCursorSkillContent(detail), ctx);
       nextFiles.push(cursorSkillPath);
       counts.skill += 1;
 
     } else if (resource.resourceType === 'rule') {
       // Write rules to .agents/instructions as markdown.
       const instructionsPath = path.join(agentsInstructionsDir, `${safeName}.md`);
-      await backupAndWrite(instructionsPath, buildCopilotInstructionsContent(detail), extensionContext);
+      await backupAndWrite(instructionsPath, buildCopilotInstructionsContent(detail), ctx);
       nextFiles.push(instructionsPath);
 
       const userInstructionsPath = path.join(userInstructionsDir, `${safeName}.md`);
-      await backupAndWrite(userInstructionsPath, buildCopilotInstructionsContent(detail), extensionContext);
+      await backupAndWrite(userInstructionsPath, buildCopilotInstructionsContent(detail), ctx);
       nextFiles.push(userInstructionsPath);
 
       // Write as .mdc in .cursor/rules/ (Cursor)
       const mdcPath = path.join(cursorRulesDir, `${safeName}.mdc`);
-      await backupAndWrite(mdcPath, buildCursorRuleContent(detail), extensionContext);
+      await backupAndWrite(mdcPath, buildCursorRuleContent(detail), ctx);
       nextFiles.push(mdcPath);
       counts.rule += 1;
 
     } else {
       // Tools: write raw JSON under .agents/tools/
       const toolPath = path.join(toolsDir, `${safeName}.json`);
-      await backupAndWrite(toolPath, `${detail.content.trim()}\n`, extensionContext);
+      await backupAndWrite(toolPath, `${detail.content.trim()}\n`, ctx);
       nextFiles.push(toolPath);
       counts.tool += 1;
     }
@@ -601,7 +653,7 @@ async function syncActiveResourcesToWorkspace(
   const staleFiles = previousFiles.filter((f) => !nextFiles.includes(f));
   for (const staleFile of staleFiles) {
     // Restore from backup (or delete if no prior content) rather than blindly removing
-    const backups = extensionContext.workspaceState.get<Record<string, string | null>>(BACKUP_STATE_KEY, {});
+    const backups = ctx.workspaceState.get<Record<string, string | null>>(BACKUP_STATE_KEY, {});
     if (staleFile in backups) {
       const original = backups[staleFile];
       try {
@@ -612,7 +664,7 @@ async function syncActiveResourcesToWorkspace(
         }
       } catch { /* best-effort */ }
       delete backups[staleFile];
-      await extensionContext.workspaceState.update(BACKUP_STATE_KEY, backups);
+      await ctx.workspaceState.update(BACKUP_STATE_KEY, backups);
     } else {
       await fs.rm(staleFile, { force: true });
     }
@@ -632,12 +684,6 @@ async function syncActiveResourcesToWorkspace(
   const toolsDisplayPath = path.relative(workspaceRoot, toolsDir) || toolsDir;
   lastLocalSyncSummary = `Synced ${counts.skill} skills → ${skillsDisplayPath} and ~/.agents/skills, ${counts.rule} rules → ${instructionsDisplayPath} and ~/.agents/instructions (copied to ${cursorDisplayPath}), ${counts.tool} tools → ${toolsDisplayPath}.`;
 
-  // VS Code/Copilot does not expose a public API to re-index custom skills live.
-  // Reload the window automatically only when skill file set changes.
-  if (skillFilesChanged) {
-    await vscode.window.showInformationMessage('Shared Synapse updated skills. Reloading window to refresh available skills...');
-    await vscode.commands.executeCommand('workbench.action.reloadWindow');
-  }
 }
 
 function setStatusBar(state: 'connected' | 'disconnected', activeSynapses: string[] = []): void {
