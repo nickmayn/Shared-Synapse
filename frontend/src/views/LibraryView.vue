@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   deleteResource,
   getResourceDetail,
@@ -10,22 +10,25 @@ import {
   upsertSynapse,
 } from '../api.js'
 
-const LIBRARY_PAGE_SIZE = 12
+const DEFAULT_LIBRARY_PAGE_SIZE = 12
+const PAGE_SIZE_OPTIONS = [12, 24, 48]
+const SEARCH_DEBOUNCE_MS = 250
 
 const activeResourceTab = ref('skills')
 const searchQuery = ref('')
 const resourcePage = ref(1)
+const pageSize = ref(DEFAULT_LIBRARY_PAGE_SIZE)
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
-const localInstallLoading = ref(false)
 const removingResourceId = ref('')
-const attachingResourceId = ref('')
+const bulkDeleting = ref(false)
+const selectedResourceIds = ref([])
 const resources = ref({
   items: [],
   total: 0,
   page: 1,
-  page_size: LIBRARY_PAGE_SIZE,
+  page_size: DEFAULT_LIBRARY_PAGE_SIZE,
   total_pages: 1,
   counts: { skills: 0, rules: 0, tools: 0 },
 })
@@ -39,9 +42,10 @@ const editorForm = ref({ type: '', id: '', name: '', description: '', content: '
 const attachOpen = ref(false)
 const attachLoading = ref(false)
 const attachError = ref('')
-const attachResource = ref(null)
+const attachResources = ref([])
 const synapseOptions = ref([])
 const attachTarget = ref('')
+let searchDebounceId = 0
 
 const groupTypeMap = {
   skills: 'skill',
@@ -49,16 +53,40 @@ const groupTypeMap = {
   tools: 'tool',
 }
 
-const resourceTabs = computed(() => ([
-  { id: 'skills', label: 'Skills', count: resources.value.counts.skills || 0 },
-  { id: 'rules', label: 'Rules', count: resources.value.counts.rules || 0 },
-  { id: 'tools', label: 'Tools', count: resources.value.counts.tools || 0 },
-]))
+const resourceTabs = computed(() => {
+  const counts = resources.value.counts || { skills: 0, rules: 0, tools: 0 }
+  const tabs = [
+    { id: 'skills', label: 'Skills' },
+    { id: 'rules', label: 'Rules' },
+    { id: 'tools', label: 'Tools' },
+  ]
+  return tabs.map((tab) => ({
+    ...tab,
+    count: tab.id === activeResourceTab.value ? resources.value.total || 0 : counts[tab.id] || 0,
+  }))
+})
 
 const activeTabLabel = computed(() => resourceTabs.value.find((tab) => tab.id === activeResourceTab.value)?.label || 'Resources')
+const selectedResources = computed(() => resources.value.items.filter((resource) => selectedResourceIds.value.includes(resource.id)))
+const hasSelection = computed(() => selectedResources.value.length > 0)
+const allVisibleSelected = computed(() => resources.value.items.length > 0 && resources.value.items.every((resource) => selectedResourceIds.value.includes(resource.id)))
+const attachDialogTitle = computed(() => {
+  if (attachResources.value.length === 1) {
+    return attachResources.value[0]?.name || attachResources.value[0]?.id || ''
+  }
+  return `${attachResources.value.length} resources`
+})
 
 function formatSynapseName(name) {
   return name === 'core-brainstem' ? 'Brainstem' : name
+}
+
+function pluralize(count, singular, plural = `${singular}s`) {
+  return count === 1 ? singular : plural
+}
+
+function clearSelection() {
+  selectedResourceIds.value = []
 }
 
 async function loadResources() {
@@ -69,26 +97,28 @@ async function loadResources() {
       type: groupTypeMap[activeResourceTab.value],
       query: searchQuery.value,
       page: resourcePage.value,
-      pageSize: LIBRARY_PAGE_SIZE,
+      pageSize: pageSize.value,
     })
     resources.value = {
       items: data.items || [],
       total: data.total || 0,
       page: data.page || 1,
-      page_size: data.page_size || LIBRARY_PAGE_SIZE,
+      page_size: data.page_size || pageSize.value,
       total_pages: data.total_pages || 1,
       counts: data.counts || { skills: 0, rules: 0, tools: 0 },
     }
+    clearSelection()
   } catch (e) {
     error.value = e.response?.data?.detail || 'Failed to load the shared library.'
     resources.value = {
       items: [],
       total: 0,
       page: 1,
-      page_size: LIBRARY_PAGE_SIZE,
+      page_size: pageSize.value,
       total_pages: 1,
       counts: { skills: 0, rules: 0, tools: 0 },
     }
+    clearSelection()
   } finally {
     loading.value = false
   }
@@ -109,8 +139,23 @@ async function loadSynapseOptions() {
 }
 
 async function applySearch() {
+  if (searchDebounceId) {
+    window.clearTimeout(searchDebounceId)
+    searchDebounceId = 0
+  }
   resourcePage.value = 1
   await loadResources()
+}
+
+function scheduleSearch() {
+  if (searchDebounceId) {
+    window.clearTimeout(searchDebounceId)
+  }
+  resourcePage.value = 1
+  searchDebounceId = window.setTimeout(() => {
+    searchDebounceId = 0
+    void loadResources()
+  }, SEARCH_DEBOUNCE_MS)
 }
 
 async function changeResourceTab(tabId) {
@@ -190,8 +235,48 @@ async function removeLibraryResource(resource) {
   }
 }
 
-function openAttachDialog(resource) {
-  attachResource.value = resource
+async function removeSelectedResources() {
+  if (!selectedResources.value.length) return
+
+  bulkDeleting.value = true
+  error.value = ''
+  notice.value = ''
+
+  try {
+    await Promise.all(
+      selectedResources.value.map((resource) => deleteResource(groupTypeMap[activeResourceTab.value], resource.id)),
+    )
+    const removedCount = selectedResources.value.length
+    notice.value = `Removed ${removedCount} ${pluralize(removedCount, activeTabLabel.value.toLowerCase().slice(0, -1), activeTabLabel.value.toLowerCase())} from the shared library and detached them from any synapses that referenced them.`
+    if (removedCount >= resources.value.items.length && resources.value.page > 1) {
+      resourcePage.value -= 1
+    }
+    await loadResources()
+  } catch (e) {
+    error.value = e.response?.data?.detail || 'Failed to remove the selected resources.'
+  } finally {
+    bulkDeleting.value = false
+  }
+}
+
+function toggleResourceSelection(resourceId) {
+  if (selectedResourceIds.value.includes(resourceId)) {
+    selectedResourceIds.value = selectedResourceIds.value.filter((id) => id !== resourceId)
+    return
+  }
+  selectedResourceIds.value = [...selectedResourceIds.value, resourceId]
+}
+
+function toggleVisibleSelection() {
+  if (allVisibleSelected.value) {
+    clearSelection()
+    return
+  }
+  selectedResourceIds.value = resources.value.items.map((resource) => resource.id)
+}
+
+function openAttachDialog(resourcesToAttach) {
+  attachResources.value = Array.isArray(resourcesToAttach) ? resourcesToAttach : [resourcesToAttach]
   attachError.value = ''
   attachOpen.value = true
   if (!synapseOptions.value.length) {
@@ -199,20 +284,24 @@ function openAttachDialog(resource) {
   }
 }
 
+function openBulkAttachDialog() {
+  if (!selectedResources.value.length) return
+  openAttachDialog(selectedResources.value)
+}
+
 function closeAttachDialog() {
   attachOpen.value = false
   attachLoading.value = false
   attachError.value = ''
-  attachResource.value = null
+  attachResources.value = []
 }
 
 async function confirmAttachToSynapse() {
-  if (!attachResource.value || !attachTarget.value) {
+  if (!attachResources.value.length || !attachTarget.value) {
     attachError.value = 'Select a synapse before attaching a resource.'
     return
   }
 
-  attachingResourceId.value = attachResource.value.id
   attachLoading.value = true
   attachError.value = ''
   error.value = ''
@@ -221,7 +310,9 @@ async function confirmAttachToSynapse() {
   try {
     const synapse = await getSynapse(attachTarget.value)
     const includes = new Set(synapse.includes || [])
-    includes.add(attachResource.value.id)
+    for (const resource of attachResources.value) {
+      includes.add(resource.id)
+    }
     await upsertSynapse(synapse.name, {
       name: synapse.name,
       description: synapse.description,
@@ -232,15 +323,33 @@ async function confirmAttachToSynapse() {
       recommended_tools: synapse.recommended_tools || [],
       extends: synapse.extends || [],
     })
-    notice.value = `Attached ${attachResource.value.id} to ${formatSynapseName(attachTarget.value)}.`
+    const attachedCount = attachResources.value.length
+    notice.value = attachedCount === 1
+      ? `Attached ${attachResources.value[0].id} to ${formatSynapseName(attachTarget.value)}.`
+      : `Attached ${attachedCount} resources to ${formatSynapseName(attachTarget.value)}.`
+    clearSelection()
     closeAttachDialog()
   } catch (e) {
     attachError.value = e.response?.data?.detail || 'Failed to attach resource to the synapse.'
   } finally {
-    attachingResourceId.value = ''
     attachLoading.value = false
   }
 }
+
+watch(searchQuery, () => {
+  scheduleSearch()
+})
+
+watch(pageSize, () => {
+  resourcePage.value = 1
+  void loadResources()
+})
+
+onBeforeUnmount(() => {
+  if (searchDebounceId) {
+    window.clearTimeout(searchDebounceId)
+  }
+})
 
 onMounted(async () => {
   await Promise.all([loadResources(), loadSynapseOptions()])
@@ -261,32 +370,60 @@ onMounted(async () => {
 
     <section class="panel-surface library-browser">
       <form class="library-toolbar" @submit.prevent="applySearch">
-        <div class="resource-tabs" role="tablist" aria-label="Library categories">
-          <button
-            v-for="tab in resourceTabs"
-            :key="tab.id"
-            type="button"
-            class="resource-tab"
-            :class="{ 'resource-tab--active': activeResourceTab === tab.id }"
-            @click="changeResourceTab(tab.id)"
-          >
-            <span>{{ tab.label }}</span>
-            <strong>{{ tab.count }}</strong>
-          </button>
-        </div>
+        <div class="library-toolbar__row">
+          <div class="resource-tabs" role="tablist" aria-label="Library categories">
+            <button
+              v-for="tab in resourceTabs"
+              :key="tab.id"
+              type="button"
+              class="resource-tab"
+              :class="{ 'resource-tab--active': activeResourceTab === tab.id }"
+              @click="changeResourceTab(tab.id)"
+            >
+              <span>{{ tab.label }}</span>
+              <strong>{{ tab.count }}</strong>
+            </button>
+          </div>
 
-        <div class="library-toolbar__controls">
-          <label class="resource-search">
-            <span>Search installed {{ activeTabLabel.toLowerCase() }}</span>
-            <input
-              v-model="searchQuery"
-              type="text"
-              :placeholder="`Search installed ${activeTabLabel.toLowerCase()} by name, description, or path`"
-            />
+          <label class="resource-search toolbar-field--search" aria-label="Search library resources">
+            <div class="resource-search__field">
+              <input
+                v-model="searchQuery"
+                type="text"
+                :placeholder="`Search installed ${activeTabLabel.toLowerCase()} by name, description, or path`"
+              />
+              <span class="resource-search__indicator" :class="{ 'resource-search__indicator--loading': loading }" aria-hidden="true" />
+            </div>
           </label>
-          <button type="submit" class="btn-secondary" :disabled="loading">
-            {{ loading ? 'Searching…' : 'Search Installed' }}
-          </button>
+
+          <label class="toolbar-field toolbar-field--size">
+            <span>Per page</span>
+            <select v-model.number="pageSize">
+              <option v-for="option in PAGE_SIZE_OPTIONS" :key="option" :value="option">{{ option }}</option>
+            </select>
+          </label>
+
+          <label class="library-bulkbar__toggle">
+            <input
+              type="checkbox"
+              :checked="allVisibleSelected"
+              :disabled="!resources.items.length"
+              @change="toggleVisibleSelection"
+            />
+            <span>Select all on page</span>
+          </label>
+
+          <div v-if="hasSelection" class="library-toolbar__actions">
+            <button type="button" class="btn-chip" :disabled="!synapseOptions.length || attachLoading" @click="openBulkAttachDialog">
+              Add Selected To Synapse
+            </button>
+            <button type="button" class="btn-chip btn-chip--danger" :disabled="bulkDeleting" @click="removeSelectedResources">
+              {{ bulkDeleting ? 'Removing…' : 'Delete Selected' }}
+            </button>
+            <button type="button" class="btn-chip btn-chip--secondary" @click="clearSelection">
+              Clear
+            </button>
+          </div>
         </div>
       </form>
 
@@ -295,13 +432,25 @@ onMounted(async () => {
       <div v-if="loading" class="loading">Loading library resources…</div>
 
       <div v-else-if="resources.items.length" class="library-grid">
-        <article v-for="resource in resources.items" :key="resource.id" class="resource-card">
+        <article
+          v-for="resource in resources.items"
+          :key="resource.id"
+          class="resource-card"
+          :class="{ 'resource-card--selected': selectedResourceIds.includes(resource.id) }"
+        >
+          <label class="resource-card__select">
+            <input
+              type="checkbox"
+              :checked="selectedResourceIds.includes(resource.id)"
+              @change="toggleResourceSelection(resource.id)"
+            />
+          </label>
           <strong>{{ resource.name }}</strong>
           <p>{{ resource.description || resource.id }}</p>
           <small>{{ resource.source_path }}</small>
           <div class="resource-card__actions">
-            <button type="button" class="btn-chip" :disabled="!synapseOptions.length || attachingResourceId === resource.id" @click="openAttachDialog(resource)">
-              {{ attachingResourceId === resource.id ? 'Attaching…' : 'Add To Synapse' }}
+            <button type="button" class="btn-chip" :disabled="!synapseOptions.length || attachLoading" @click="openAttachDialog(resource)">
+              Add To Synapse
             </button>
             <button type="button" class="btn-chip btn-chip--secondary" @click="openEditor(groupTypeMap[activeResourceTab], resource.id)">
               View / Edit
@@ -350,7 +499,7 @@ onMounted(async () => {
         <div class="editor-modal__header">
           <div>
             <p class="eyebrow">Attach Resource</p>
-            <h2>{{ attachResource?.name || attachResource?.id }}</h2>
+            <h2>{{ attachDialogTitle }}</h2>
           </div>
           <button type="button" class="btn-close" @click="closeAttachDialog">×</button>
         </div>
@@ -366,7 +515,10 @@ onMounted(async () => {
             </select>
           </label>
 
-          <p class="attach-copy">This keeps the resource in the shared library and adds its id to the selected synapse includes list.</p>
+          <p class="attach-copy">
+            This keeps {{ attachResources.length === 1 ? 'the resource' : 'these resources' }} in the shared library and adds
+            {{ attachResources.length === 1 ? ' its id' : ' their ids' }} to the selected synapse includes list.
+          </p>
           <p v-if="attachError" class="form-error">{{ attachError }}</p>
 
           <div class="form-actions">
@@ -462,16 +614,13 @@ onMounted(async () => {
 }
 
 .library-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 460px);
-  gap: 1rem;
-  align-items: end;
+  margin-bottom: 1rem;
 }
 
-.library-toolbar__controls {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 1rem;
+.library-toolbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
   align-items: end;
 }
 
@@ -482,9 +631,9 @@ onMounted(async () => {
 }
 
 .resource-tab {
-  min-height: 52px;
-  padding: 0.8rem 1rem;
-  border-radius: 18px;
+  min-height: 44px;
+  padding: 0.6rem 0.9rem;
+  border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.68);
   display: inline-flex;
@@ -493,14 +642,18 @@ onMounted(async () => {
   color: var(--ink);
 }
 
+.toolbar-field--search {
+  flex: 1 1 360px;
+}
+
 .resource-tab strong {
-  min-width: 28px;
-  min-height: 28px;
+  min-width: 24px;
+  min-height: 24px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
   background: rgba(20, 33, 61, 0.08);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
 }
 
 .resource-tab--active {
@@ -509,12 +662,67 @@ onMounted(async () => {
   box-shadow: 0 12px 28px rgba(20, 33, 61, 0.08);
 }
 
+.toolbar-field {
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.toolbar-field--size {
+  min-width: 88px;
+}
+
+.toolbar-field select {
+  min-height: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.5rem 0.7rem;
+  color: var(--ink);
+}
+
 .resource-search,
 .attach-form label {
   display: grid;
-  gap: 0.45rem;
+  gap: 0;
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+.resource-search__field {
+  position: relative;
+}
+
+.resource-search__field input {
+  min-height: 38px;
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+  padding-right: 2.2rem;
+}
+
+.toolbar-field--size select {
+  min-height: 38px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.82rem;
+}
+
+.resource-search__indicator {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 999px;
+  background: rgba(20, 33, 61, 0.2);
+}
+
+.resource-search__indicator--loading {
+  background: transparent;
+  border: 2px solid rgba(239, 108, 61, 0.25);
+  border-top-color: var(--accent-strong);
+  animation: spin 0.9s linear infinite;
 }
 
 .library-grid {
@@ -525,10 +733,31 @@ onMounted(async () => {
 }
 
 .resource-card {
+  position: relative;
   padding: 0.95rem;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.84);
+}
+
+.resource-card--selected {
+  border-color: rgba(239, 108, 61, 0.35);
+  box-shadow: 0 10px 22px rgba(20, 33, 61, 0.08);
+}
+
+.resource-card__select {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.resource-card:hover .resource-card__select,
+.resource-card--selected .resource-card__select {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .resource-card strong {
@@ -599,6 +828,28 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 
+.library-toolbar__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.library-bulkbar__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 42px;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.library-bulkbar__toggle span {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .library-pagination p {
   margin: 0;
   color: var(--muted);
@@ -661,11 +912,21 @@ onMounted(async () => {
 }
 
 @media (max-width: 960px) {
-  .library-header,
-  .library-toolbar,
-  .library-toolbar__controls {
-    grid-template-columns: 1fr;
-    flex-direction: column;
+  .library-toolbar__row {
+    align-items: stretch;
+  }
+
+  .toolbar-field--size,
+  .toolbar-field--search,
+  .library-bulkbar__toggle,
+  .library-toolbar__actions {
+    width: 100%;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>
