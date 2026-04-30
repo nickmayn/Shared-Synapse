@@ -11,12 +11,20 @@ export class SynapseClient {
   private baseUrl: string;
   private accessToken: string;
   private refreshToken: string;
+  private apiToken: string;
   private secrets: SecretStorage;
 
-  constructor(baseUrl: string, accessToken: string, refreshToken: string, secrets: SecretStorage) {
+  constructor(
+    baseUrl: string,
+    accessToken: string,
+    refreshToken: string,
+    secrets: SecretStorage,
+    apiToken = '',
+  ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
+    this.apiToken = apiToken;
     this.secrets = secrets;
   }
 
@@ -37,7 +45,9 @@ export class SynapseClient {
         method,
         headers: {
           'Content-Type': 'application/json',
-          ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
+          ...((this.apiToken || this.accessToken)
+            ? { Authorization: `Bearer ${this.apiToken || this.accessToken}` }
+            : {}),
           ...(bodyStr ? { 'Content-Length': Buffer.byteLength(bodyStr) } : {}),
         },
       };
@@ -69,6 +79,10 @@ export class SynapseClient {
     try {
       return await this.request<T>(method, path, body);
     } catch (err: unknown) {
+      if (this.apiToken) {
+        throw err;
+      }
+
       if (err instanceof Error && err.message.startsWith('HTTP 401') && this.refreshToken) {
         const refreshed = await this.doRefresh();
         if (refreshed) {
@@ -113,6 +127,24 @@ export class SynapseClient {
     return data.synapses;
   }
 
+  async getSynapseResources(name: string): Promise<{
+    skills: { id: string; name: string; description: string; type: string }[];
+    rules: { id: string; name: string; description: string; type: string }[];
+    tools: { id: string; name: string; description: string; type: string }[];
+  }> {
+    return this.get(`/api/synapses/${encodeURIComponent(name)}/resources`);
+  }
+
+  async getResourceDetail(resourceType: 'skill' | 'rule' | 'tool', resourceId: string): Promise<{
+    id: string;
+    name: string;
+    description: string;
+    type: string;
+    content: string;
+  }> {
+    return this.get(`/api/resources/${resourceType}/${encodeURIComponent(resourceId)}`);
+  }
+
   async activateSynapse(name: string): Promise<void> {
     await this.post(`/api/synapses/${encodeURIComponent(name)}/activate`);
   }
@@ -138,10 +170,21 @@ export class SynapseClient {
     const data = await this.request<{ access_token: string; refresh_token: string; role: string }>(
       'POST', '/auth/login', { username, password }
     );
+    this.apiToken = '';
     this.accessToken = data.access_token;
     this.refreshToken = data.refresh_token;
+    await this.secrets.delete('sharedSynapse.apiToken');
     await this.secrets.store('sharedSynapse.accessToken', data.access_token);
     await this.secrets.store('sharedSynapse.refreshToken', data.refresh_token);
     return data;
+  }
+
+  async useApiToken(apiToken: string): Promise<void> {
+    this.apiToken = apiToken.trim();
+    this.accessToken = '';
+    this.refreshToken = '';
+    await this.secrets.delete('sharedSynapse.accessToken');
+    await this.secrets.delete('sharedSynapse.refreshToken');
+    await this.secrets.store('sharedSynapse.apiToken', this.apiToken);
   }
 }

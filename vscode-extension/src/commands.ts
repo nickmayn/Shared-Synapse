@@ -6,11 +6,16 @@ import type { SynapseClient } from './client';
 import { McpBridge } from './mcpBridge';
 
 type ClientGetter = () => SynapseClient | null;
+type ClientSetter = (client: SynapseClient | null) => void;
+type AsyncHook = () => Promise<void>;
 
 export function registerCommands(
   context: vscode.ExtensionContext,
   getClient: ClientGetter,
+  setClient: ClientSetter,
   statusBarItem: vscode.StatusBarItem,
+  syncNow: AsyncHook,
+  toggleSyncEnabled: AsyncHook,
 ): void {
   // Search Knowledge
   context.subscriptions.push(
@@ -78,6 +83,56 @@ export function registerCommands(
     }),
   );
 
+  // Manage Synapses (toggle active set)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sharedSynapse.manageSynapses', async () => {
+      const client = getClient();
+      if (!client) { showNotConnected(); return; }
+
+      try {
+        const synapses = await client.listSynapses();
+        if (!synapses.length) {
+          vscode.window.showInformationMessage('No synapses available on the server.');
+          return;
+        }
+
+        const picked = await vscode.window.showQuickPick(
+          synapses.map((synapse) => ({
+            label: synapse.name,
+            picked: synapse.active,
+            description: synapse.active ? 'active' : 'inactive',
+          })),
+          {
+            canPickMany: true,
+            placeHolder: 'Select which synapses should remain active',
+          },
+        );
+
+        if (!picked) return;
+
+        const selected = new Set(picked.map((item) => item.label));
+        const currentlyActive = new Set(synapses.filter((synapse) => synapse.active).map((synapse) => synapse.name));
+
+        const toActivate = synapses
+          .map((synapse) => synapse.name)
+          .filter((name) => selected.has(name) && !currentlyActive.has(name));
+        const toDeactivate = synapses
+          .map((synapse) => synapse.name)
+          .filter((name) => currentlyActive.has(name) && !selected.has(name) && name !== 'core-brainstem');
+
+        await Promise.all([
+          ...toActivate.map((name) => client.activateSynapse(name)),
+          ...toDeactivate.map((name) => client.deactivateSynapse(name)),
+        ]);
+
+        await syncNow();
+        vscode.window.showInformationMessage('Synapse activation updated.');
+      } catch (err: unknown) {
+        vscode.window.showErrorMessage(`Manage synapses failed: ${String(err)}`);
+      }
+    }),
+  );
+
   // Push Selection to Knowledge
   context.subscriptions.push(
     vscode.commands.registerCommand('sharedSynapse.pushSelection', async () => {
@@ -125,13 +180,13 @@ export function registerCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand('sharedSynapse.openDashboard', () => {
       const config = vscode.workspace.getConfiguration('sharedSynapse');
-      const url = config.get<string>('serverUrl', 'http://localhost:5173');
-      // Open in the default browser
+      const url = config.get<string>('dashboardUrl', '').trim()
+        || config.get<string>('serverUrl', 'http://localhost:5173');
       vscode.env.openExternal(vscode.Uri.parse(url));
     }),
   );
 
-  // Connect (prompt for server URL + credentials)
+  // Connect (prompt for server URL + auth method)
   context.subscriptions.push(
     vscode.commands.registerCommand('sharedSynapse.connect', async () => {
       const config = vscode.workspace.getConfiguration('sharedSynapse');
@@ -143,6 +198,39 @@ export function registerCommands(
       if (!serverUrl) return;
       await config.update('serverUrl', serverUrl, vscode.ConfigurationTarget.Global);
 
+      const authMode = await vscode.window.showQuickPick(
+        [
+          { label: 'API Token', value: 'apiToken' },
+          { label: 'Username + Password', value: 'credentials' },
+        ],
+        { placeHolder: 'Select authentication method' },
+      );
+      if (!authMode) return;
+
+      const { SynapseClient } = await import('./client');
+      const tempClient = new SynapseClient(serverUrl, '', '', context.secrets, '');
+
+      if (authMode.value === 'apiToken') {
+        const apiToken = await vscode.window.showInputBox({
+          prompt: 'Personal API token',
+          password: true,
+          ignoreFocusOut: true,
+        });
+        if (!apiToken) return;
+
+        try {
+          await tempClient.useApiToken(apiToken);
+          await tempClient.listSynapses();
+          setClient(tempClient);
+          await syncNow();
+          vscode.window.showInformationMessage('Connected to Shared Synapse with API token!');
+          statusBarItem.text = '$(brain) Synapse';
+        } catch (err: unknown) {
+          vscode.window.showErrorMessage(`API token authentication failed: ${String(err)}`);
+        }
+        return;
+      }
+
       const username = await vscode.window.showInputBox({ prompt: 'Username', ignoreFocusOut: true });
       if (!username) return;
       const password = await vscode.window.showInputBox({
@@ -152,14 +240,45 @@ export function registerCommands(
       });
       if (!password) return;
 
-      const { SynapseClient } = await import('./client');
-      const tempClient = new SynapseClient(serverUrl, '', '', context.secrets);
       try {
         await tempClient.login(username, password);
+        setClient(tempClient);
+        await syncNow();
         vscode.window.showInformationMessage('Connected to Shared Synapse!');
         statusBarItem.text = '$(brain) Synapse';
       } catch (err: unknown) {
         vscode.window.showErrorMessage(`Login failed: ${String(err)}`);
+      }
+    }),
+  );
+
+  // Set or replace API token without changing server URL.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sharedSynapse.setApiToken', async () => {
+      const config = vscode.workspace.getConfiguration('sharedSynapse');
+      const serverUrl = config.get<string>('serverUrl', '').trim();
+      if (!serverUrl) {
+        vscode.window.showWarningMessage('Set Shared Synapse server URL first with "Connect to Server".');
+        return;
+      }
+
+      const apiToken = await vscode.window.showInputBox({
+        prompt: 'Personal API token',
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (!apiToken) return;
+
+      const { SynapseClient } = await import('./client');
+      const tempClient = new SynapseClient(serverUrl, '', '', context.secrets, '');
+      try {
+        await tempClient.useApiToken(apiToken);
+        await tempClient.listSynapses();
+        setClient(tempClient);
+        await syncNow();
+        vscode.window.showInformationMessage('API token saved and connection verified.');
+      } catch (err: unknown) {
+        vscode.window.showErrorMessage(`Unable to verify API token: ${String(err)}`);
       }
     }),
   );
@@ -182,6 +301,20 @@ export function registerCommands(
       const bridge = new McpBridge(backendPath);
       bridge.start();
       vscode.window.showInformationMessage('Local Shared Synapse MCP agent started.');
+    }),
+  );
+
+  // Sync now
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sharedSynapse.syncNow', async () => {
+      await syncNow();
+    }),
+  );
+
+  // Toggle background sync
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sharedSynapse.toggleSync', async () => {
+      await toggleSyncEnabled();
     }),
   );
 }

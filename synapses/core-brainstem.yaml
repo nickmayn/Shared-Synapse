@@ -4,6 +4,7 @@ activation: core
 includes:
 - auth-system
 - shared-synapse-overview
+- ckm:design
 common_tasks:
 - understand platform conventions
 - apply team baseline rules

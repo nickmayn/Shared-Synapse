@@ -45,6 +45,15 @@ export const login = (username, password) =>
 export const logout = (refresh_token) =>
   http.post('/auth/logout', { refresh_token }).then((r) => r.data)
 
+export const listApiTokens = () =>
+  http.get('/auth/api-tokens').then((r) => r.data)
+
+export const createApiToken = (name) =>
+  http.post('/auth/api-tokens', { name }).then((r) => r.data)
+
+export const revokeApiToken = (id) =>
+  http.delete(`/auth/api-tokens/${id}`).then((r) => r.data)
+
 // Synapses
 export const listSynapses = () => http.get('/api/synapses').then((r) => r.data)
 export const getSynapse = (name) => http.get(`/api/synapses/${name}`).then((r) => r.data)

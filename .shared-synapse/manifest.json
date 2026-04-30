@@ -1,0 +1,17 @@
+{
+  "synced_at": "2026-04-30T09:20:10.777Z",
+  "active_synapses": [
+    "Test",
+    "core-brainstem"
+  ],
+  "files": [
+    "/Users/nmaynard/Development/idst/Shared-Synapse/.vscode/ckm-banner-design.agent.md",
+    "/Users/nmaynard/Development/idst/Shared-Synapse/.vscode/ckm-design.agent.md",
+    "/Users/nmaynard/Development/idst/Shared-Synapse/.vscode/graphify.agent.md"
+  ],
+  "counts": {
+    "skill": 3,
+    "rule": 0,
+    "tool": 0
+  }
+}

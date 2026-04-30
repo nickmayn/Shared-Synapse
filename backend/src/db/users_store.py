@@ -6,8 +6,12 @@ Schema
 users (id TEXT PK, username TEXT UNIQUE, hashed_password TEXT,
        role TEXT, active INTEGER, created_at TEXT, updated_at TEXT)
 refresh_tokens (token TEXT PK, user_id TEXT, expires_at TEXT, revoked INTEGER)
+api_tokens (id TEXT PK, user_id TEXT, name TEXT, token_hash TEXT UNIQUE,
+           token_prefix TEXT, created_at TEXT, last_used_at TEXT, revoked INTEGER)
 """
 import os
+import secrets
+import hashlib
 import sqlite3
 import threading
 from datetime import datetime, UTC, timedelta
@@ -61,6 +65,17 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             user_id     TEXT NOT NULL,
             expires_at  TEXT NOT NULL,
             revoked     INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id            TEXT PRIMARY KEY,
+            user_id       TEXT NOT NULL,
+            name          TEXT NOT NULL,
+            token_hash    TEXT UNIQUE NOT NULL,
+            token_prefix  TEXT NOT NULL,
+            created_at    TEXT NOT NULL,
+            last_used_at  TEXT,
+            revoked       INTEGER NOT NULL DEFAULT 0
         );
         """
     )
@@ -134,6 +149,73 @@ def set_user_active(user_id: str, active: bool) -> Optional[dict]:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return _pwd_context.verify(plain, hashed)
+
+
+# ---------------------------------------------------------------------------
+# API token store
+# ---------------------------------------------------------------------------
+
+def _hash_api_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_api_token(user_id: str, name: str) -> tuple[dict, str]:
+    token_value = f"sst_{secrets.token_urlsafe(32)}"
+    token_hash = _hash_api_token(token_value)
+    now = _now()
+    token_id = secrets.token_hex(16)
+    token_prefix = token_value[:12]
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO api_tokens (id, user_id, name, token_hash, token_prefix, created_at, last_used_at, revoked) "
+        "VALUES (?, ?, ?, ?, ?, ?, NULL, 0)",
+        (token_id, user_id, name, token_hash, token_prefix, now),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT id, user_id, name, token_prefix, created_at, last_used_at, revoked "
+        "FROM api_tokens WHERE id = ?",
+        (token_id,),
+    ).fetchone()
+    return dict(row), token_value
+
+
+def list_api_tokens(user_id: str) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT id, user_id, name, token_prefix, created_at, last_used_at, revoked "
+        "FROM api_tokens WHERE user_id = ? AND revoked = 0 ORDER BY created_at DESC",
+        (user_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def revoke_api_token(user_id: str, token_id: str) -> bool:
+    conn = _get_conn()
+    cursor = conn.execute(
+        "UPDATE api_tokens SET revoked = 1 WHERE id = ? AND user_id = ?",
+        (token_id, user_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def authenticate_api_token(token: str) -> Optional[dict]:
+    token_hash = _hash_api_token(token)
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT user_id FROM api_tokens WHERE token_hash = ? AND revoked = 0",
+        (token_hash,),
+    ).fetchone()
+    if not row:
+        return None
+
+    conn.execute(
+        "UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?",
+        (_now(), token_hash),
+    )
+    conn.commit()
+    return get_user_by_id(row["user_id"])
 
 
 # ---------------------------------------------------------------------------

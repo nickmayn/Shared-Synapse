@@ -24,6 +24,10 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from .db.users_store import (
+    authenticate_api_token,
+    create_api_token,
+    list_api_tokens,
+    revoke_api_token,
     get_user_by_username,
     get_user_by_id,
     store_refresh_token,
@@ -72,6 +76,25 @@ class AccessTokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class CreateApiTokenRequest(BaseModel):
+    name: str
+
+
+class ApiTokenRecord(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    token_prefix: str
+    created_at: str
+    last_used_at: Optional[str] = None
+    revoked: int
+
+
+class CreateApiTokenResponse(BaseModel):
+    token: str
+    record: ApiTokenRecord
+
+
 # ---------------------------------------------------------------------------
 # Token helpers
 # ---------------------------------------------------------------------------
@@ -98,6 +121,17 @@ def _decode_token(token: str) -> dict:
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+
+
+def _resolve_user_from_bearer_token(token: str) -> Optional[dict]:
+    try:
+        payload = _decode_token(token)
+    except HTTPException:
+        return None
+    user = get_user_by_id(payload.get("sub", ""))
+    if not user or not user.get("active"):
+        return None
+    return user
 
 
 # ---------------------------------------------------------------------------
@@ -157,11 +191,20 @@ def get_current_user(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    payload = _decode_token(credentials.credentials)
-    user = get_user_by_id(payload["sub"])
-    if not user or not user.get("active"):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
-    return user
+    token = credentials.credentials
+    user = _resolve_user_from_bearer_token(token)
+    if user:
+        return user
+
+    token_user = authenticate_api_token(token)
+    if token_user and token_user.get("active"):
+        return token_user
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def require_role(minimum_role: str):
@@ -178,3 +221,30 @@ def require_role(minimum_role: str):
         return user
 
     return _check
+
+
+@router.get("/api-tokens", response_model=list[ApiTokenRecord])
+async def api_list_user_tokens(user: dict = Depends(get_current_user)) -> list[ApiTokenRecord]:
+    return [ApiTokenRecord(**token) for token in list_api_tokens(user["id"])]
+
+
+@router.post("/api-tokens", response_model=CreateApiTokenResponse, status_code=status.HTTP_201_CREATED)
+async def api_create_user_token(
+    body: CreateApiTokenRequest,
+    user: dict = Depends(get_current_user),
+) -> CreateApiTokenResponse:
+    token_name = body.name.strip()
+    if not token_name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Token name is required")
+    token_record, token_value = create_api_token(user["id"], token_name)
+    return CreateApiTokenResponse(token=token_value, record=ApiTokenRecord(**token_record))
+
+
+@router.delete("/api-tokens/{token_id}")
+async def api_revoke_user_token(
+    token_id: str,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    if not revoke_api_token(user["id"], token_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API token not found")
+    return {"status": "revoked", "id": token_id}

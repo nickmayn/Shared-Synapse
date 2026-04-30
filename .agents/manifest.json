@@ -1,0 +1,20 @@
+{
+  "synced_at": "2026-04-30T10:26:35.033Z",
+  "active_synapses": [
+    "Test",
+    "core-brainstem"
+  ],
+  "files": [
+    "/Users/nmaynard/Development/idst/Shared-Synapse/.agents/skills/ckm-banner-design.md",
+    "/Users/nmaynard/.agents/skills/ckm-banner-design.md",
+    "/Users/nmaynard/Development/idst/Shared-Synapse/.agents/skills/ckm-design.md",
+    "/Users/nmaynard/.agents/skills/ckm-design.md",
+    "/Users/nmaynard/Development/idst/Shared-Synapse/.agents/skills/graphify.md",
+    "/Users/nmaynard/.agents/skills/graphify.md"
+  ],
+  "counts": {
+    "skill": 3,
+    "rule": 0,
+    "tool": 0
+  }
+}
