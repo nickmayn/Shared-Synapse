@@ -2,20 +2,53 @@
 
 # Shared Synapse
 
-A Git-backed, Chroma-indexed, MCP-exposed intelligence layer for developers and AI agents. Shared Synapse ingests structured knowledge into a shared memory graph, activates the right synapses for a task, and surfaces the result through a backend MCP server, a FastAPI REST layer, a Vue 3 frontend, a standalone CLI, and a VS Code extension.
+**One place to define the rules, skills, and tools your whole engineering team follows — automatically delivered to every developer's AI assistant.**
 
-## High-Level Concepts
+---
 
-- **Brain stem baseline**: `core-brainstem` is the always-on synapse that represents team-wide rules, workflow constraints, and shared concepts.
-- **Optional neurons**: Backend and frontend work activate additional synapses that connect the relevant rules, skills, tools, decisions, and designs.
-- **Knowledge-first system**: Markdown, YAML, and JSON files under `knowledge/` and `synapses/` remain the durable source material for the intelligence layer.
-- **Ingestion pipeline**: Files are parsed into typed documents, chunked into retrieval-friendly segments, embedded with a sentence-transformer model, and stored in ChromaDB.
-- **Hybrid retrieval**: Queries use semantic vector search plus structured metadata filters, then pass through a re-ranking stage to improve relevance.
-- **MCP access layer**: The backend FastMCP server exposes search, retrieval, knowledge-management, skill, rule, and synapse operations for multiple agents.
-- **Auth & RBAC**: JWT-based login with three roles (`admin`, `contributor`, `viewer`). An admin is created automatically on first start.
-- **Synapse management UI**: Create, edit, activate/deactivate, and delete neuron bundles from the browser.
-- **CLI agent**: `synapse` CLI connects to the hosted API or runs a local MCP agent.
-- **VS Code extension**: Auto-connects to your server, lets you search knowledge, activate synapses, and push highlighted code from within VS Code.
+## The Problem
+
+Every developer on your team has an AI coding assistant. But each one has its own prompts, its own rules, and its own idea of what "our standards" look like. The result: inconsistent code, duplicated effort, and a constant battle to get AI tools to follow conventions that your team spent years defining.
+
+- Your TypeScript standards live in one person's Cursor config.
+- Your code-review checklist is copy-pasted into three different system prompts.
+- A new hire's AI assistant knows nothing about your team's patterns until someone sits down and explains it.
+- When a standard changes, you have no way to push that update to everyone at once.
+
+---
+
+## What Shared Synapse Does
+
+Shared Synapse is a central hub where your team maintains a single authoritative library of **rules**, **skills**, and **tools**. The VS Code/Cursor extension then automatically distributes that library to every developer's AI assistant — globally and in real time.
+
+**Rules** are standards your AI should always follow: coding conventions, security requirements, review criteria, commit formats.
+
+**Skills** are reusable workflows your AI can execute: "add an API endpoint", "debug auth issues", "run a UX review".
+
+**Tools** are integrations your AI can call: APIs, MCP servers, custom scripts.
+
+You group related resources into **Synapses** — bundles that can be activated or deactivated per team or context. A `frontend` synapse turns on React/TypeScript rules and component skills. An `api` synapse turns on REST standards and auth patterns. The `brainstem` synapse is always on and holds the rules every developer should follow, no matter what they're working on.
+
+---
+
+## Why Teams Use This
+
+| Without Shared Synapse | With Shared Synapse |
+|---|---|
+| Each developer maintains their own AI config | One team-owned library, everyone stays in sync |
+| Standards drift between developers over time | A rule change propagates to every AI assistant on next sync |
+| Onboarding means manually configuring AI tools | New developers get the team's full standards automatically |
+| No visibility into what rules are active | A shared UI shows exactly what's applied and where |
+| AI assistance varies wildly across the codebase | Consistent, standards-aware AI across all developers |
+
+---
+
+## How It Works
+
+1. **Admins define resources** in the web UI — write a rule, build a skill, or register a tool directly in the browser. No files to hunt down or import.
+2. **Resources are grouped into Synapses** — toggle a synapse on or off per team. Changes are reflected immediately.
+3. **The VS Code/Cursor extension syncs automatically** — on every poll cycle it writes active rules and skills to four places on the developer's machine: workspace `.cursor/rules/`, global `~/.cursor/rules/`, workspace `.agents/instructions/`, and global `~/.agents/instructions/`. Every AI assistant on that machine picks them up with no further action.
+4. **Developers stay in sync** without thinking about it — they open VS Code, connect once, and the extension handles the rest.
 
 ---
 
@@ -117,24 +150,77 @@ Then run **Shared Synapse: Connect to Server** from the command palette.
 
 ---
 
+## Screenshots
+
+### 1 — Login
+![Login page](docs/screenshots/01-login.png)
+
+Secure JWT-based login with role-based access control (admin / contributor / viewer). Admins manage the shared library; contributors propose changes; viewers search and browse.
+
+---
+
+### 2 — Dashboard Overview
+![Dashboard overview](docs/screenshots/02-overview.png)
+
+See at a glance which synapses are active, how many rules, skills, and tools your team has defined, and the current sync state across all connected developers.
+
+---
+
+### 3 — Synapses — Toggle Standards Per Team or Context
+![Synapses view](docs/screenshots/03-synapses.png)
+
+Group your resources into **Synapse bundles** — one per team, squad, or project context. Toggle a synapse on or off and the extension propagates the change globally to every active developer's AI assistant within one poll cycle. The `brainstem` synapse stays always-on and holds the standards every developer follows everywhere.
+
+---
+
+### 4 — Library — One Place for All Team Resources
+![Library view](docs/screenshots/04-library.png)
+
+The shared library is the single source of truth for your team's rules, skills, and tools. Browse by type, search by name or description, attach resources to synapses, and edit content in-place. Admins can author a new resource directly from the **+ New Rule / Skill / Tool** button — no file hunting or importing required.
+
+---
+
+### 5 — Create New Rule (UI Editor)
+![Create rule modal](docs/screenshots/05-create-rule.png)
+
+Write a rule right in the browser. Give it a name, an optional slug (auto-generated if blank), a one-line description, and full Markdown content. On save it is written to `knowledge/rules/`, indexed immediately, and distributed to all connected developers on their next sync cycle.
+
+---
+
+### 6 — VS Code / Cursor Extension — Automatic Global Delivery
+![VS Code extension](docs/screenshots/06-vscode-extension.png)
+
+The sidebar shows which synapses are active and whether sync is running. When sync is on, active rules and skills are written to **four locations on the developer's machine** simultaneously — so every AI tool they use picks them up without any manual steps:
+
+| Destination | AI Tool |
+|---|---|
+| `.agents/instructions/` (workspace) | VS Code Copilot — this project |
+| `~/.agents/instructions/` (user-global) | VS Code Copilot — all projects |
+| `.cursor/rules/` (workspace) | Cursor — this project |
+| `~/.cursor/rules/` (user-global) | **Cursor — all projects** |
+
+**Toggle Sync** pauses or resumes background polling instantly. **Open Rules** opens the workspace folder; **Global Rules** opens `~/.cursor/rules/` in the OS file manager so you can verify what was written.
+
+---
+
 ## Architecture
 
 ```
 backend/            # Python MCP backend and Chroma-backed ingestion/retrieval code
-  src/api.py        # FastAPI REST app (auth, user management, synapse CRUD)
+  src/api.py        # FastAPI REST app (auth, user management, synapse CRUD, resource creation)
   src/auth.py       # JWT login/refresh/logout + require_role dependency
   src/user_management.py  # Admin user CRUD endpoints
   src/db/users_store.py   # SQLite user + refresh-token store
   src/db/synapses_store.py # YAML synapse CRUD + active-set tracking
-frontend/           # Vue 3 control surface for synapses, auth, and user management
+frontend/           # Vue 3 web UI for managing the shared library and synapses
   src/api.js        # Axios service layer with JWT auto-refresh
   src/composables/useAuth.js  # Auth composable (login, logout, role)
   src/router/index.js   # Vue Router with auth guard + role guard
-  src/views/        # LoginView, SynapsesView, SynapseEditView, BrainStemView, AdminUsersView
+  src/views/        # LoginView, SynapsesView, LibraryView, SynapseEditView, AdminUsersView
 cli/                # synapse CLI (connect, search, add, activate, agent, sync)
-vscode-extension/   # VS Code VSIX extension (auto-connect, commands, MCP bridge)
-knowledge/          # Concepts, decisions, rules, skills, tools, and designs
-synapses/           # YAML activation bundles connecting neurons and the core brain stem
+vscode-extension/   # VS Code/Cursor VSIX extension — syncs active resources to the developer's machine
+knowledge/          # Rules, skills, tools, concepts, decisions, and designs
+synapses/           # YAML activation bundles — each bundle is a toggleable set of resources
 ```
 
 **Data flow:**
@@ -159,78 +245,11 @@ A default `admin` user is created on first startup. Change the password via the 
 
 ---
 
-## REST Endpoints (FastAPI)
+## API Reference
 
-| Method | Path | Role | Description |
-|--------|------|------|-------------|
-| POST | `/auth/login` | public | Issue JWT + refresh token |
-| POST | `/auth/refresh` | public | Refresh access token |
-| POST | `/auth/logout` | public | Revoke refresh token |
-| GET | `/admin/users` | admin | List users |
-| POST | `/admin/users` | admin | Create user |
-| PATCH | `/admin/users/{id}/role` | admin | Update user role |
-| PATCH | `/admin/users/{id}/deactivate` | admin | Deactivate user |
-| GET | `/api/synapses` | viewer | List synapses |
-| GET | `/api/synapses/{name}` | viewer | Get synapse detail |
-| PUT | `/api/synapses/{name}` | admin | Create/update synapse |
-| DELETE | `/api/synapses/{name}` | admin | Delete synapse |
-| POST | `/api/synapses/{name}/activate` | contributor | Activate synapse |
-| POST | `/api/synapses/{name}/deactivate` | contributor | Deactivate synapse |
-| GET | `/api/search` | viewer | Semantic search |
-| POST | `/api/knowledge` | contributor | Add knowledge document |
-| POST | `/api/reindex` | admin | Trigger full re-ingestion |
+The backend exposes a full REST API with interactive documentation auto-generated by FastAPI.
 
-## MCP Endpoints
-
-| Tool | Description |
-|------|-------------|
-| `search_knowledge` | Semantic search with optional filters (`type`, `tags`, `context_pack`) |
-| `get_document` | Retrieve full document by ID |
-| `get_context_pack` | Retrieve a named synapse/context bundle |
-| `get_synapse` | Retrieve a named synapse using the new terminology |
-| `list_tools` | List and rank tools relevant to a task |
-| `execute_tool` | Execute a registered tool by ID with JSON input |
-| `add_knowledge` | Add/update a knowledge document directly (re-indexed immediately, shared across all agents) |
-| `update_knowledge` | Update an existing document and re-index it; auto-marks dependent skills for refresh |
-| `delete_knowledge` | Remove a document and its chunks; marks dependent skills for refresh |
-| `reindex_knowledge` | Trigger full re-ingestion from the file system |
-| `get_skill` | Retrieve a skill by ID (name, instructions, triggers, dependencies) |
-| `list_skills` | List skills, optionally filtered by context tag |
-| `upsert_skill` | Create or update a skill; immediately shared with all connected agents |
-| `get_rule` | Retrieve a behavioral rule by ID |
-| `list_rules` | List rules by priority; optionally filtered by context |
-| `nominate_knowledge` | Nominate a knowledge document for inclusion in shared neurons (concurrent users can propose, vote, approve) |
-| `list_nominations` | List knowledge nominations filtered by status (`pending`, `approved`, `rejected`) |
-| `vote_nomination` | Cast an up/down vote on a pending nomination; each user may vote once |
-| `approve_nomination` | Approve a nomination and immediately ingest it into the shared neuron store |
-| `reject_nomination` | Reject a nomination without ingesting it |
-| `add_conversation_entry` | Append an entry to a user's per-user nested conversation history (memory palace layer: conversation → session → entry) |
-| `get_conversation` | Retrieve a user's full conversation tree nested as conversations → sessions → entries, oldest-first |
-| `list_conversations` | List all named conversation rooms for a user with session and entry counts, newest first |
-| `list_synapses` | List all synapse definitions with name, activation type, and current active status |
-| `get_synapse_detail` | Full synapse definition including includes, tags, common_tasks, recommended_tools |
-| `upsert_synapse` | Create or update a synapse YAML bundle (re-indexed immediately) |
-| `delete_synapse` | Delete a synapse YAML bundle and purge its index entries |
-| `activate_synapse` | Mark an optional synapse as active |
-| `deactivate_synapse` | Remove an optional synapse from the active set |
-
-### Example: search_knowledge
-
-```json
-{
-  "query": "how does authentication work",
-  "filters": "{\"tags\": [\"auth\", \"backend\"]}"
-}
-```
-
-### Example: list_tools
-
-```json
-{
-  "task": "manage API routes",
-  "context": "backend infrastructure"
-}
-```
+Once the backend is running, open **`http://localhost:8000/docs`** in your browser for the complete Swagger UI — every endpoint, request schema, response model, and role requirement is documented there. An alternative ReDoc view is available at **`http://localhost:8000/redoc`**.
 
 ---
 
@@ -276,11 +295,13 @@ Then re-run ingestion to index them.
 
 ## Bundled Rules and Skills
 
-The repository now ships a first-class set of bundled rules and skills under `knowledge/rules/` and `knowledge/skills/`.
+The repository ships a starter library under `knowledge/rules/` and `knowledge/skills/` covering the most common team standards:
 
-- Rules capture the current engineering standards for API design, backend architecture, Python, frontend runtime and styling, deployment, security, and workflow.
-- Skills capture reusable workflows such as adding an MCP or API endpoint, debugging auth, finding external skills, UI and UX review, reading VS Code search results, and agent customization.
-- The `core-brainstem`, `backend`, and `frontend` synapses activate the right knowledge bundles for a given neuron or team surface.
+- **Rules**: API design, backend architecture, Python conventions, frontend runtime and styling, deployment, security policy, and workflow standards.
+- **Skills**: Adding MCP or API endpoints, debugging auth flows, finding external skills, UI/UX review, reading VS Code search output, and agent customization.
+- **Synapses**: `core-brainstem` (always-on, team-wide), `backend`, and `frontend` activation bundles that pull in the right rules and skills for each context.
+
+These are a starting point — edit them to match your team's actual standards, then add your own.
 
 ---
 

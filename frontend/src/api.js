@@ -78,6 +78,8 @@ export const activateSynapse = (name) =>
   http.post(`/api/synapses/${name}/activate`).then((r) => r.data)
 export const deactivateSynapse = (name) =>
   http.post(`/api/synapses/${name}/deactivate`).then((r) => r.data)
+export const createResource = (type, body) =>
+  http.post(`/api/resources/${type}`, body).then((r) => r.data)
 
 // GitHub import
 export const searchGithubRepos = (query, page = 1, pageSize = 8) =>

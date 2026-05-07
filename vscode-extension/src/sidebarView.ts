@@ -1,6 +1,8 @@
 /**
  * Activity Bar sidebar view for Shared Synapse controls and status.
  */
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 type ConnectionState = 'connected' | 'disconnected';
@@ -89,6 +91,12 @@ export class SharedSynapseSidebarProvider implements vscode.WebviewViewProvider 
         } else {
           vscode.window.showWarningMessage('No workspace folder is open.');
         }
+      }
+      if (message.type === 'openGlobalRulesFolder') {
+        const globalCursorRules = vscode.Uri.file(
+          path.join(os.homedir(), '.cursor', 'rules'),
+        );
+        await vscode.commands.executeCommand('revealFileInOS', globalCursorRules);
       }
     });
   }
@@ -206,6 +214,7 @@ export class SharedSynapseSidebarProvider implements vscode.WebviewViewProvider 
     }
     .actions { display: grid; gap: 5px; }
     .actions-row { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .actions-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
     button {
       border: 1px solid var(--vscode-button-border, transparent);
       border-radius: 4px;
@@ -296,8 +305,9 @@ export class SharedSynapseSidebarProvider implements vscode.WebviewViewProvider 
       <button class="secondary" data-command="sharedSynapse.toggleSync">Toggle Sync</button>
       <button class="secondary" data-command="sharedSynapse.connect">Connect Wizard</button>
     </div>
-    <div class="actions-row">
+    <div class="actions-row cols-3">
       <button class="secondary" id="openRulesBtn">Open Rules</button>
+      <button class="secondary" id="openGlobalRulesBtn">Global Rules</button>
       <button class="secondary" data-command="sharedSynapse.openDashboard">Dashboard</button>
     </div>
   </div>
@@ -361,6 +371,10 @@ export class SharedSynapseSidebarProvider implements vscode.WebviewViewProvider 
 
     document.getElementById('openRulesBtn').addEventListener('click', () => {
       vscode.postMessage({ type: 'openRulesFolder' });
+    });
+
+    document.getElementById('openGlobalRulesBtn').addEventListener('click', () => {
+      vscode.postMessage({ type: 'openGlobalRulesFolder' });
     });
 
     document.getElementById('saveSettingsBtn').addEventListener('click', () => {

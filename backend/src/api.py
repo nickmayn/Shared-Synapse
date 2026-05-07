@@ -12,6 +12,7 @@ Run with:
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -74,6 +75,13 @@ class ResourceUpdateRequest(BaseModel):
     name: str
     description: str = ""
     content: str
+
+
+class ResourceCreateRequest(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    content: str = ""
 
 
 def _knowledge_root() -> Path:
@@ -407,6 +415,77 @@ async def _delete_resource(resource_type: str, resource_id: str) -> dict:
     return {"status": "deleted", "id": resource_id, "type": resource_type}
 
 
+def _sanitize_resource_id(value: str) -> str:
+    """Convert a display name or raw string into a valid filename-safe ID."""
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9_-]+", "-", value)
+    value = re.sub(r"-{2,}", "-", value).strip("-")
+    return value or "resource"
+
+
+async def _create_resource(resource_type: str, payload: "ResourceCreateRequest") -> dict:
+    """Create a new resource file in the knowledge directory and index it immediately."""
+    type_dir_map = {"skill": "skills", "rule": "rules", "tool": "tools"}
+    resource_id = _sanitize_resource_id(payload.id or payload.name)
+    if not resource_id:
+        raise HTTPException(status_code=422, detail="id or name is required")
+
+    root = _knowledge_root()
+    type_dir = root / type_dir_map[resource_type]
+    type_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = await _library_resource_index()
+    if resource_id in existing:
+        raise HTTPException(status_code=409, detail=f"Resource '{resource_id}' already exists")
+
+    if resource_type == "tool":
+        ext = ".json"
+        raw_content = payload.content.strip()
+        try:
+            parsed: dict = json.loads(raw_content) if raw_content else {}
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail=f"Tool content must be valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise HTTPException(status_code=422, detail="Tool content must be a JSON object")
+        parsed["id"] = resource_id
+        parsed["description"] = payload.description
+        parsed.setdefault("metadata", {})
+        parsed["metadata"]["name"] = payload.name
+        file_content = json.dumps(parsed, indent=2) + "\n"
+        metadata: dict = {"name": payload.name, "description": payload.description, "type": resource_type}
+        index_content = raw_content
+    else:
+        ext = ".md"
+        post = frontmatter.Post(
+            (payload.content.strip() + "\n") if payload.content.strip() else "",
+            id=resource_id,
+            name=payload.name,
+            description=payload.description,
+            type=resource_type,
+        )
+        file_content = frontmatter.dumps(post)
+        if not file_content.endswith("\n"):
+            file_content += "\n"
+        metadata = {"id": resource_id, "name": payload.name, "description": payload.description, "type": resource_type}
+        index_content = payload.content
+
+    file_path = type_dir / f"{resource_id}{ext}"
+    file_path.write_text(file_content, encoding="utf-8")
+
+    await _index_knowledge_document(resource_id, resource_type, index_content, metadata)
+
+    return {
+        "id": resource_id,
+        "name": payload.name,
+        "description": payload.description,
+        "type": resource_type,
+        "source_path": str(file_path.relative_to(root.parent)),
+        "content": payload.content,
+        "editable": True,
+        "storage": "local",
+    }
+
+
 @app.get("/api/synapses", dependencies=[Depends(require_role("viewer"))])
 async def api_list_synapses() -> dict:
     return {"synapses": db_list_synapses()}
@@ -505,6 +584,14 @@ async def api_get_resource_detail(resource_type: str, resource_id: str) -> dict:
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Resource '{resource_id}' not found")
     return detail
+
+
+@app.post("/api/resources/{resource_type}", dependencies=[Depends(require_role("admin"))], status_code=201)
+async def api_create_resource(resource_type: str, body: ResourceCreateRequest) -> dict:
+    """Create a new rule, skill, or tool and index it immediately."""
+    if resource_type not in {"skill", "rule", "tool"}:
+        raise HTTPException(status_code=422, detail="resource_type must be one of: skill, rule, tool")
+    return await _create_resource(resource_type, body)
 
 
 @app.put("/api/resources/{resource_type}/{resource_id}", dependencies=[Depends(require_role("admin"))])

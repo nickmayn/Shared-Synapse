@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
+  createResource,
   deleteResource,
   getResourceDetail,
   getSynapse,
@@ -9,6 +10,9 @@ import {
   updateResource,
   upsertSynapse,
 } from '../api.js'
+import { useAuth } from '../composables/useAuth.js'
+
+const { isAdmin } = useAuth()
 
 const DEFAULT_LIBRARY_PAGE_SIZE = 12
 const PAGE_SIZE_OPTIONS = [12, 24, 48]
@@ -47,6 +51,11 @@ const synapseOptions = ref([])
 const attachTarget = ref('')
 let searchDebounceId = 0
 
+const createOpen = ref(false)
+const createSaving = ref(false)
+const createError = ref('')
+const createForm = ref({ id: '', name: '', description: '', content: '' })
+
 const groupTypeMap = {
   skills: 'skill',
   rules: 'rule',
@@ -70,6 +79,11 @@ const activeTabLabel = computed(() => resourceTabs.value.find((tab) => tab.id ==
 const selectedResources = computed(() => resources.value.items.filter((resource) => selectedResourceIds.value.includes(resource.id)))
 const hasSelection = computed(() => selectedResources.value.length > 0)
 const allVisibleSelected = computed(() => resources.value.items.length > 0 && resources.value.items.every((resource) => selectedResourceIds.value.includes(resource.id)))
+const createContentPlaceholder = computed(() =>
+  activeResourceTab.value === 'tools'
+    ? '{"id": "my-tool", "name": "My Tool"}'
+    : '# My Rule\n\nWrite content here…'
+)
 const attachDialogTitle = computed(() => {
   if (attachResources.value.length === 1) {
     return attachResources.value[0]?.name || attachResources.value[0]?.id || ''
@@ -296,6 +310,40 @@ function closeAttachDialog() {
   attachResources.value = []
 }
 
+function openCreateDialog() {
+  createForm.value = { id: '', name: '', description: '', content: '' }
+  createError.value = ''
+  createSaving.value = false
+  createOpen.value = true
+}
+
+function closeCreateDialog() {
+  createOpen.value = false
+  createSaving.value = false
+  createError.value = ''
+}
+
+async function saveCreate() {
+  createSaving.value = true
+  createError.value = ''
+  try {
+    const type = groupTypeMap[activeResourceTab.value]
+    await createResource(type, {
+      id: createForm.value.id.trim() || createForm.value.name.trim(),
+      name: createForm.value.name.trim(),
+      description: createForm.value.description.trim(),
+      content: createForm.value.content,
+    })
+    notice.value = `Created ${createForm.value.name || createForm.value.id}.`
+    await loadResources()
+    closeCreateDialog()
+  } catch (e) {
+    createError.value = e.response?.data?.detail || 'Failed to create resource.'
+  } finally {
+    createSaving.value = false
+  }
+}
+
 async function confirmAttachToSynapse() {
   if (!attachResources.value.length || !attachTarget.value) {
     attachError.value = 'Select a synapse before attaching a resource.'
@@ -366,6 +414,9 @@ onMounted(async () => {
           Manage what is already in the local shared library, edit resource content, remove anything stale, and attach installed resources directly to a synapse without leaving this screen.
         </p>
       </div>
+      <button v-if="isAdmin" type="button" class="btn-primary" @click="openCreateDialog">
+        + New {{ activeTabLabel.slice(0, -1) }}
+      </button>
     </section>
 
     <section class="panel-surface library-browser">
@@ -566,6 +617,49 @@ onMounted(async () => {
               {{ editorSaving ? 'Saving…' : 'Save Resource' }}
             </button>
             <button type="button" class="btn-cancel btn-cancel--button" @click="closeEditor">Close</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div v-if="createOpen" class="editor-overlay" @click.self="closeCreateDialog">
+      <div class="editor-modal">
+        <div class="editor-modal__header">
+          <div>
+            <p class="eyebrow">Create New</p>
+            <h2>New {{ activeTabLabel.slice(0, -1) }}</h2>
+          </div>
+          <button type="button" class="btn-close" @click="closeCreateDialog">×</button>
+        </div>
+
+        <form class="editor-form" @submit.prevent="saveCreate">
+          <p v-if="createError" class="form-error">{{ createError }}</p>
+
+          <label>
+            Name <span class="field-required">*</span>
+            <input v-model="createForm.name" required placeholder="Human-readable name" />
+          </label>
+
+          <label>
+            ID <span class="field-hint">(optional – auto-generated from name if blank)</span>
+            <input v-model="createForm.id" placeholder="e.g. my-new-rule" />
+          </label>
+
+          <label>
+            Description
+            <input v-model="createForm.description" placeholder="One-line summary" />
+          </label>
+
+          <label>
+            Content <span class="field-hint">(Markdown for rules &amp; skills; JSON for tools)</span>
+            <textarea v-model="createForm.content" rows="16" spellcheck="false" :placeholder="createContentPlaceholder" />
+          </label>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary" :disabled="createSaving || !createForm.name.trim()">
+              {{ createSaving ? 'Creating…' : `Create ${activeTabLabel.slice(0, -1)}` }}
+            </button>
+            <button type="button" class="btn-cancel btn-cancel--button" @click="closeCreateDialog">Cancel</button>
           </div>
         </form>
       </div>
@@ -910,6 +1004,32 @@ onMounted(async () => {
 .btn-cancel--button {
   min-width: 112px;
 }
+
+.field-required {
+  color: #dc2626;
+}
+
+.field-hint {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.btn-primary {
+  padding: 0.65rem 1.25rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.btn-primary:hover { background: var(--accent-strong); }
+.btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
 
 @media (max-width: 960px) {
   .library-toolbar__row {
