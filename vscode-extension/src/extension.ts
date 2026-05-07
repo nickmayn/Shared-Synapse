@@ -379,6 +379,11 @@ function getUserPromptsAgentsPath(): string {
   return path.join(os.homedir(), 'Library', 'Application Support', 'Code', 'User', 'prompts', 'agents');
 }
 
+/** Return the user-level global Cursor rules directory (cross-platform). */
+function getGlobalCursorRulesPath(): string {
+  return path.join(os.homedir(), '.cursor', 'rules');
+}
+
 function normalizeSupportingPath(relativePath: string): string | null {
   const normalized = relativePath.replace(/\\/g, '/').trim();
   if (!normalized || normalized.startsWith('/') || normalized.includes('..')) {
@@ -528,7 +533,8 @@ async function syncActiveResourcesToWorkspace(
   const { localSyncPath } = getConfigurationState();
   const syncRoot = path.join(workspaceRoot, localSyncPath || '.agents');
   // .agents for synced workspace artifacts and tools; .cursor/rules for Cursor-compatible rule copies.
-  // Also mirror skills/rules into the user-level ~/.agents so Copilot can pick them up globally.
+  // Also mirror skills/rules into the user-level ~/.agents so Copilot can pick them up globally,
+  // and into ~/.cursor/rules so Cursor picks up the global team rules without a per-project setup.
   const agentsSkillsDir = path.join(syncRoot, 'skills');
   const agentsInstructionsDir = path.join(syncRoot, 'instructions');
   const cursorRulesDir = path.join(workspaceRoot, '.cursor', 'rules');
@@ -537,6 +543,7 @@ async function syncActiveResourcesToWorkspace(
   const userSkillsDir = path.join(userAgentsRoot, 'skills');
   const userInstructionsDir = path.join(userAgentsRoot, 'instructions');
   const userPromptsAgentsDir = getUserPromptsAgentsPath();
+  const globalCursorRulesDir = getGlobalCursorRulesPath();
 
   await Promise.all([
     fs.mkdir(agentsSkillsDir, { recursive: true }),
@@ -546,6 +553,7 @@ async function syncActiveResourcesToWorkspace(
     fs.mkdir(userSkillsDir, { recursive: true }),
     fs.mkdir(userInstructionsDir, { recursive: true }),
     fs.mkdir(userPromptsAgentsDir, { recursive: true }),
+    fs.mkdir(globalCursorRulesDir, { recursive: true }),
   ]);
 
   // Load previous manifest to know which synced files may now be stale
@@ -618,14 +626,18 @@ async function syncActiveResourcesToWorkspace(
       await backupAndWrite(copilotAgentPath, buildCopilotAgentFileContent(detail), ctx);
       nextFiles.push(copilotAgentPath);
 
-      // Cursor skill mirror as .mdc rule file.
+      // Cursor skill mirror – workspace-level .cursor/rules/ and global ~/.cursor/rules/.
       const cursorSkillPath = path.join(cursorRulesDir, `skill-${safeName}.mdc`);
       await backupAndWrite(cursorSkillPath, buildCursorSkillContent(detail), ctx);
       nextFiles.push(cursorSkillPath);
+
+      const globalCursorSkillPath = path.join(globalCursorRulesDir, `skill-${safeName}.mdc`);
+      await backupAndWrite(globalCursorSkillPath, buildCursorSkillContent(detail), ctx);
+      nextFiles.push(globalCursorSkillPath);
       counts.skill += 1;
 
     } else if (resource.resourceType === 'rule') {
-      // Write rules to .agents/instructions as markdown.
+      // Write rules to .agents/instructions as markdown (workspace + global).
       const instructionsPath = path.join(agentsInstructionsDir, `${safeName}.md`);
       await backupAndWrite(instructionsPath, buildCopilotInstructionsContent(detail), ctx);
       nextFiles.push(instructionsPath);
@@ -634,10 +646,14 @@ async function syncActiveResourcesToWorkspace(
       await backupAndWrite(userInstructionsPath, buildCopilotInstructionsContent(detail), ctx);
       nextFiles.push(userInstructionsPath);
 
-      // Write as .mdc in .cursor/rules/ (Cursor)
+      // Write as .mdc in workspace .cursor/rules/ and global ~/.cursor/rules/ (Cursor).
       const mdcPath = path.join(cursorRulesDir, `${safeName}.mdc`);
       await backupAndWrite(mdcPath, buildCursorRuleContent(detail), ctx);
       nextFiles.push(mdcPath);
+
+      const globalMdcPath = path.join(globalCursorRulesDir, `${safeName}.mdc`);
+      await backupAndWrite(globalMdcPath, buildCursorRuleContent(detail), ctx);
+      nextFiles.push(globalMdcPath);
       counts.rule += 1;
 
     } else {
@@ -682,7 +698,7 @@ async function syncActiveResourcesToWorkspace(
   const instructionsDisplayPath = path.relative(workspaceRoot, agentsInstructionsDir) || agentsInstructionsDir;
   const cursorDisplayPath = path.relative(workspaceRoot, cursorRulesDir) || cursorRulesDir;
   const toolsDisplayPath = path.relative(workspaceRoot, toolsDir) || toolsDir;
-  lastLocalSyncSummary = `Synced ${counts.skill} skills → ${skillsDisplayPath} and ~/.agents/skills, ${counts.rule} rules → ${instructionsDisplayPath} and ~/.agents/instructions (copied to ${cursorDisplayPath}), ${counts.tool} tools → ${toolsDisplayPath}.`;
+  lastLocalSyncSummary = `Synced ${counts.skill} skills → ${skillsDisplayPath}, ~/.agents/skills, ~/.cursor/rules; ${counts.rule} rules → ${instructionsDisplayPath}, ~/.agents/instructions, ~/.cursor/rules (workspace: ${cursorDisplayPath}); ${counts.tool} tools → ${toolsDisplayPath}.`;
 
 }
 

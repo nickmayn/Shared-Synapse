@@ -117,6 +117,59 @@ Then run **Shared Synapse: Connect to Server** from the command palette.
 
 ---
 
+## Screenshots
+
+### 1 — Login
+![Login page](docs/screenshots/01-login.png)
+
+Secure JWT-based login with role-based access control (admin / contributor / viewer).
+
+---
+
+### 2 — Dashboard Overview
+![Dashboard overview](docs/screenshots/02-overview.png)
+
+At-a-glance view of active synapses, installed resources by type, and team knowledge summary.
+
+---
+
+### 3 — Synapses — Toggleable Knowledge Sets
+![Synapses view](docs/screenshots/03-synapses.png)
+
+Create, activate, or deactivate **synapse bundles** — grouped sets of rules, skills, and tools for specific teams or contexts. Toggling a synapse is reflected globally in VS Code and Cursor within one poll cycle.
+
+---
+
+### 4 — Library — Manage Rules, Skills & Tools
+![Library view](docs/screenshots/04-library.png)
+
+Browse all installed resources with paginated tabs. The **+ New Rule** (or Skill / Tool) button lets you author resources directly in the UI — no file hunting or importing required.
+
+---
+
+### 5 — Create New Rule (UI Editor)
+![Create rule modal](docs/screenshots/05-create-rule.png)
+
+The creation modal accepts a name, optional ID slug (auto-generated if blank), description, and full Markdown content. On save the resource is written to `knowledge/rules/` and immediately indexed and available to all connected clients.
+
+---
+
+### 6 — VS Code Extension Sidebar + Global Sync
+![VS Code extension](docs/screenshots/06-vscode-extension.png)
+
+The VS Code / Cursor sidebar shows live connection status, which synapses are active, and the sync state.  Clicking **Toggle Sync** turns background polling on or off instantly.  When sync is on, rules and skills are written to **four global locations** simultaneously:
+
+| Destination | Purpose |
+|---|---|
+| `.agents/instructions/` (workspace) | VS Code Copilot workspace instructions |
+| `~/.agents/instructions/` (user-global) | VS Code Copilot global instructions |
+| `.cursor/rules/` (workspace) | Cursor project rules |
+| `~/.cursor/rules/` (user-global) | **Cursor global rules — all projects** |
+
+Use **Open Rules** to jump to the workspace folder, or **Global Rules** to open `~/.cursor/rules/` directly in your OS file manager.
+
+---
+
 ## Architecture
 
 ```
@@ -179,6 +232,11 @@ A default `admin` user is created on first startup. Change the password via the 
 | GET | `/api/search` | viewer | Semantic search |
 | POST | `/api/knowledge` | contributor | Add knowledge document |
 | POST | `/api/reindex` | admin | Trigger full re-ingestion |
+| POST | `/api/resources/{type}` | admin | **Create** a new rule, skill, or tool (writes file + indexes) |
+| GET | `/api/resources/search` | viewer | Search library resources by type and query |
+| GET | `/api/resources/{type}/{id}` | viewer | Get resource detail and content |
+| PUT | `/api/resources/{type}/{id}` | admin | Update resource content |
+| DELETE | `/api/resources/{type}/{id}` | admin | Delete resource and detach from all synapses |
 
 ## MCP Endpoints
 
