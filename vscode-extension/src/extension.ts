@@ -698,7 +698,12 @@ async function syncActiveResourcesToWorkspace(
   const instructionsDisplayPath = path.relative(workspaceRoot, agentsInstructionsDir) || agentsInstructionsDir;
   const cursorDisplayPath = path.relative(workspaceRoot, cursorRulesDir) || cursorRulesDir;
   const toolsDisplayPath = path.relative(workspaceRoot, toolsDir) || toolsDir;
-  lastLocalSyncSummary = `Synced ${counts.skill} skills → ${skillsDisplayPath}, ~/.agents/skills, ~/.cursor/rules; ${counts.rule} rules → ${instructionsDisplayPath}, ~/.agents/instructions, ~/.cursor/rules (workspace: ${cursorDisplayPath}); ${counts.tool} tools → ${toolsDisplayPath}.`;
+  lastLocalSyncSummary = [
+    `Synced ${counts.skill} skills → ${skillsDisplayPath}, ~/.agents/skills, ~/.cursor/rules;`,
+    `${counts.rule} rules → ${instructionsDisplayPath}, ~/.agents/instructions,`,
+    `~/.cursor/rules (workspace: ${cursorDisplayPath});`,
+    `${counts.tool} tools → ${toolsDisplayPath}.`,
+  ].join(' ');
 
 }
 

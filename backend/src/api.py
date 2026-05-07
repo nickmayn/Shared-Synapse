@@ -464,6 +464,8 @@ async def _create_resource(resource_type: str, payload: "ResourceCreateRequest")
             type=resource_type,
         )
         file_content = frontmatter.dumps(post)
+        if not file_content.endswith("\n"):
+            file_content += "\n"
         metadata = {"id": resource_id, "name": payload.name, "description": payload.description, "type": resource_type}
         index_content = payload.content
 
