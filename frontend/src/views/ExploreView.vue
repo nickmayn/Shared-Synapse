@@ -81,8 +81,9 @@ function effectiveCandidateKind() {
 function githubSearchQuery() {
   const normalizedQuery = repoQuery.value.trim()
   if (!normalizedQuery) return ''
-  if (typeFilter.value !== 'tool') return normalizedQuery
-  return `${normalizedQuery} mcp server`
+  if (typeFilter.value === 'skill') return `${normalizedQuery} skill`
+  if (typeFilter.value === 'tool') return `${normalizedQuery} mcp server`
+  return normalizedQuery
 }
 
 async function loadLibrary() {

@@ -53,3 +53,63 @@ def test_parse_import_document_uses_frontmatter_metadata():
     assert document["type"] == "rule"
     assert document["description"] == "Keep secrets out of code"
     assert document["metadata"]["source_repo"] == "octo/shared-brain"
+
+
+class TestInferCandidateTypeSkillFormat:
+    """Ensure infer_candidate_type only returns skill for properly formatted paths."""
+
+    def test_skill_md_suffix_is_a_skill(self):
+        from src.github_import import infer_candidate_type
+        assert infer_candidate_type("knowledge/skills/debug-auth.skill.md") == "skill"
+
+    def test_file_in_skills_dir_is_a_skill(self):
+        from src.github_import import infer_candidate_type
+        assert infer_candidate_type("knowledge/skills/add-endpoint.md") == "skill"
+
+    def test_readme_in_skills_dir_is_not_a_skill(self):
+        from src.github_import import infer_candidate_type
+        assert infer_candidate_type("knowledge/skills/README.md") is None
+
+    def test_readme_case_insensitive_in_skills_dir(self):
+        from src.github_import import infer_candidate_type
+        assert infer_candidate_type("knowledge/skills/Readme.md") is None
+
+    def test_changelog_in_skills_dir_is_not_a_skill(self):
+        from src.github_import import infer_candidate_type
+        assert infer_candidate_type("knowledge/skills/CHANGELOG.md") is None
+
+    def test_index_in_skills_dir_is_not_a_skill(self):
+        from src.github_import import infer_candidate_type
+        assert infer_candidate_type("skills/index.md") is None
+
+    def test_readme_in_rules_dir_is_not_a_rule(self):
+        from src.github_import import infer_candidate_type
+        assert infer_candidate_type("knowledge/rules/README.md") is None
+
+    def test_rule_file_in_rules_dir_is_a_rule(self):
+        from src.github_import import infer_candidate_type
+        assert infer_candidate_type("knowledge/rules/backend-core.md") == "rule"
+
+    def test_generic_docs_outside_skill_dirs_are_unclassified(self):
+        """Generic filenames outside skill/rule dirs should still return None."""
+        from src.github_import import infer_candidate_type
+        assert infer_candidate_type("README.md") is None
+        assert infer_candidate_type("docs/overview.md") is None
+
+    def test_select_import_candidates_excludes_generic_skill_docs(self):
+        """select_import_candidates should not include README or CHANGELOG as skills."""
+        from src.github_import import select_import_candidates
+
+        tree = [
+            {"path": "knowledge/skills/README.md", "type": "blob"},
+            {"path": "knowledge/skills/CHANGELOG.md", "type": "blob"},
+            {"path": "knowledge/skills/add-endpoint.md", "type": "blob"},
+            {"path": "knowledge/skills/debug-auth-flow.md", "type": "blob"},
+        ]
+
+        candidates = select_import_candidates(tree, "octo/shared-brain", "main", kind="skill")
+        paths = [c["path"] for c in candidates]
+        assert "knowledge/skills/README.md" not in paths
+        assert "knowledge/skills/CHANGELOG.md" not in paths
+        assert "knowledge/skills/add-endpoint.md" in paths
+        assert "knowledge/skills/debug-auth-flow.md" in paths
