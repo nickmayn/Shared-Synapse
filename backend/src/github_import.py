@@ -16,6 +16,13 @@ GITHUB_API_BASE = "https://api.github.com"
 _IMPORTABLE_EXTENSIONS = (".md", ".markdown", ".json", ".yaml", ".yml")
 _GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
 
+# Stems of generic documentation files that should never be treated as skill or
+# rule definitions, even if they happen to live inside a /skills/ or /rules/
+# directory.
+_GENERIC_DOC_STEMS: frozenset[str] = frozenset({
+    "readme", "changelog", "contributing", "license", "index", "overview",
+})
+
 
 def search_repositories_page(query: str, limit: int = 8, page: int = 1) -> dict:
     """Search public GitHub repositories that may contain shareable knowledge assets."""
@@ -108,14 +115,26 @@ def select_import_candidates(
 
 
 def infer_candidate_type(path: str) -> Optional[str]:
-    """Infer whether a repo file is best treated as a skill, rule, or tool."""
+    """Infer whether a repo file is best treated as a skill, rule, or tool.
+
+    Generic documentation files (README, CHANGELOG, etc.) are excluded from
+    skill and rule classification even when they reside inside a skills/ or
+    rules/ directory, because they are unlikely to be properly formatted skill
+    or rule definitions.
+    """
     lowered = path.lower()
     if not lowered.endswith(_IMPORTABLE_EXTENSIONS):
         return None
 
+    stem = PurePosixPath(lowered).stem
+
     if lowered.endswith("skill.md") or "/skills/" in lowered or "/skill/" in lowered:
+        if stem in _GENERIC_DOC_STEMS:
+            return None
         return "skill"
     if lowered.endswith(".instructions.md") or "/rules/" in lowered or "/rule/" in lowered:
+        if stem in _GENERIC_DOC_STEMS:
+            return None
         return "rule"
     if "/tools/" in lowered or "/tool/" in lowered or lowered.endswith((".json", ".yaml", ".yml")):
         return "tool"
